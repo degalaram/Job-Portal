@@ -18,10 +18,3 @@ BACKEND_URL = "https://projectnow.onrender.com"
 
 
 
-[build]
-command = "node build.js"
-cwd = "."
-
-
-
-
