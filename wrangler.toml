@@ -3,10 +3,15 @@ name = "job-portal-frontend"
 compatibility_date = "2024-09-07"
 
 [build]
-command = "node build.js"
+command = "npm install && node build.js"
 cwd = "."
+
+[build.environment]
+NODE_VERSION = "18"
+VITE_API_BASE_URL = "https://projectnow.onrender.com"
 
 [assets]
 directory = "./dist"
 
-
+[env.production.vars]
+BACKEND_URL = "https://projectnow.onrender.com"
