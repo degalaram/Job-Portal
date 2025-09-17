@@ -1,0 +1,3 @@
+
+# SPA fallback - serve index.html for all non-file requests
+/*    /index.html   200
