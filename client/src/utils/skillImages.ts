@@ -118,7 +118,7 @@ export const getSkillImage = (skill: string) => {
     'Slack': 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/slack/slack-original.svg',
     'Notion': 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/notion/notion-original.svg',
 
-    // Additional Programming Languages  
+    // Additional Programming Languages
     'C': 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/c/c-original.svg',
     'C++': 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/cplusplus/cplusplus-original.svg',
     'R': 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/r/r-original.svg',
@@ -292,7 +292,7 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
       }
       const url = new URL(cleanWebsite);
       const domain = url.hostname.replace('www.', '');
-      
+
       // Try multiple reliable logo services (prioritizing stable ones)
       const logoSources = [
         `https://favicons.githubusercontent.com/${domain}`,
@@ -300,7 +300,7 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
         `https://logo.clearbit.com/${domain}`,
         `https://cdn.worldvectorlogo.com/logos/${cleanName}.svg`
       ];
-      
+
       return logoSources[0]; // Return primary source
     } catch (error) {
       console.log('Error parsing website URL:', error);
@@ -353,20 +353,17 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
     }
   }
 
-  // Fallback: generate domain from company name with multiple logo sources
+  // Fallback: generate domain from company name
   const cleanName = normalizedName
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, '')
     .toLowerCase();
 
-  // Try multiple stable fallback sources
-  const fallbackSources = [
-    `https://favicons.githubusercontent.com/${cleanName}.com`,
-    `https://www.google.com/s2/favicons?domain=${cleanName}.com&sz=128`,
-    `https://logo.clearbit.com/${cleanName}.com`
-  ];
+  if (cleanName.length > 2) {
+    return `https://www.google.com/s2/favicons?domain=${cleanName}.com&sz=64`;
+  }
 
-  return fallbackSources[0];
+  return null;
 };
 
 // Enhanced logo loading with better error handling and fallbacks
@@ -378,7 +375,7 @@ export const getCompanyLogoWithFallback = (company: { name: string; website?: st
 
   // Try to get logo from our enhanced function
   const generatedLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
-  
+
   if (generatedLogo) {
     return generatedLogo;
   }
@@ -387,10 +384,10 @@ export const getCompanyLogoWithFallback = (company: { name: string; website?: st
   const initial = company.name.charAt(0).toUpperCase();
   const colors = [
     '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
-    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
+    '#06B6D4', '#8B5CF6', '#F97316', '#EC4899', '#6366F1'
   ];
   const color = colors[company.name.length % colors.length];
-  
+
   // Create a simple SVG logo as data URL
   const svg = `
     <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
@@ -398,7 +395,7 @@ export const getCompanyLogoWithFallback = (company: { name: string; website?: st
       <text x="50" y="65" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle" font-weight="bold">${initial}</text>
     </svg>
   `;
-  
+
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
