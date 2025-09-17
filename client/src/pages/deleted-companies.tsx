@@ -21,6 +21,7 @@ import {
   Edit
 } from 'lucide-react';
 import type { InsertCompany } from '@shared/schema';
+import { getCompanyLogoFromUrl } from '@/utils/skillImages';
 
 interface DeletedCompany {
   id: string;
@@ -61,11 +62,14 @@ function EditDeletedCompanyDialog({ company, children }: { company: DeletedCompa
 
   const updateCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      const response = await apiRequest('PUT', `/api/deleted-companies/${company.id}`, data);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update company');
-      }
+      // Auto-analyze and set logo before sending
+      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
+      const updatedData = {
+        ...data,
+        logo: logoUrl || data.logo || ''
+      };
+      
+      const response = await apiRequest('PUT', `/api/deleted-companies/${company.id}`, updatedData);
       return response.json();
     },
     onSuccess: (result) => {
@@ -353,8 +357,25 @@ export default function DeletedCompanies() {
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
-                        <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-                          <Building className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+                        <div className="w-12 h-12 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
+                          {company.logo || getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name) ? (
+                            <img 
+                              src={company.logo || getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name)!} 
+                              alt={company.name}
+                              className="w-8 h-8 object-contain rounded"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  parent.innerHTML = `<div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <span className="text-sm font-bold text-blue-600">{company.name.charAt(0).toUpperCase()}</span>
+                            </div>
+                          )}
                         </div>
                         <div>
                           <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
