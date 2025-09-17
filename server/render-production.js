@@ -29,9 +29,17 @@ const corsOptions = {
       /\.netlify\.app$/,
       /\.vercel\.app$/,
       /\.onrender\.com$/,
+      /\.pages\.dev$/,
+      /\.workers\.dev$/,
+      /\.cloudflare\.com$/,
       /^https:\/\/.*\.onrender\.com$/,
+      /^https:\/\/.*\.pages\.dev$/,
+      /^https:\/\/.*\.workers\.dev$/,
       /^http:\/\/localhost:\d+$/,
-      /^https:\/\/localhost:\d+$/
+      /^https:\/\/localhost:\d+$/,
+      /\.replit\.dev$/,
+      /\.repl\.co$/,
+      /\.replit\.app$/
     ].filter(Boolean);
 
     const isAllowed = allowedOrigins.some(allowedOrigin => {
@@ -45,13 +53,17 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log('Blocked by CORS:', origin);
-      // In production on Render, be more permissive to avoid 502 errors
-      callback(null, true);
+      // For production deployment, allow all HTTPS origins to prevent blocking
+      if (origin && origin.startsWith('https://')) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'user-id']
 };
 
 app.use(cors(corsOptions));
