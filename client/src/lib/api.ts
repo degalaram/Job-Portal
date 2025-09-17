@@ -16,8 +16,9 @@ const getApiUrl = () => {
     return "http://localhost:5000";
   }
 
-  // PRIORITY 4: For Cloudflare Workers - point directly to Render backend
-  if (window.location.hostname.includes('workers.dev')) {
+  // PRIORITY 4: For Cloudflare Workers/Pages - point directly to Render backend
+  if (window.location.hostname.includes('workers.dev') || 
+      window.location.hostname.includes('pages.dev')) {
     return "https://project-1-yxba.onrender.com";
   }
 
