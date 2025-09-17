@@ -26,6 +26,7 @@ import {
 import { FaWhatsapp, FaTelegram } from 'react-icons/fa';
 import type { Job, Company } from '@shared/schema';
 import { getCompanyLogoWithFallback } from '@/utils/skillImages'; // Import the enhanced logo function
+import { SmartLogo } from '@/components/ui/smart-logo';
 
 type JobWithCompany = Job & { company: Company };
 
@@ -657,24 +658,12 @@ export default function Jobs() {
                           <div className="flex items-start space-x-3 flex-1">
                             {/* Left Company Logo */}
                             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
-                              {job.company.logo || getCompanyLogo(job.company) ? (
-                                <img 
-                                  src={job.company.logo || getCompanyLogo(job.company)!} 
-                                  alt={job.company.name}
-                                  className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    const parent = target.parentElement;
-                                    if (parent) {
-                                      parent.innerHTML = `<div class="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm sm:text-lg font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                                  <span className="text-sm sm:text-lg font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
-                                </div>
-                              )}
+                              <SmartLogo
+                                company={job.company}
+                                className="object-contain rounded"
+                                size={48}
+                                fallbackClassName="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"
+                              />
                             </div>
 
                             {/* Job Info */}
@@ -695,24 +684,12 @@ export default function Jobs() {
 
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
-                            {job.company.logo || getCompanyLogoWithFallback(job.company) ? ( // Use the new function here
-                              <img 
-                                src={job.company.logo || getCompanyLogoWithFallback(job.company)!} 
-                                alt={job.company.name}
-                                className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  const parent = target.parentElement;
-                                  if (parent) {
-                                    parent.innerHTML = `<div class="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"><span class="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center">
-                                <span className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
-                              </div>
-                            )}
+                            <SmartLogo
+                              company={job.company}
+                              className="object-contain rounded-lg"
+                              size={64}
+                              fallbackClassName="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"
+                            />
                           </div>
                         </div>
 
