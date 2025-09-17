@@ -1,5 +1,5 @@
 
-name = "job-portal-frontend"
+name = "jobport"
 compatibility_date = "2024-09-07"
 
 [build]
