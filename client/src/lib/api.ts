@@ -16,10 +16,10 @@ const getApiUrl = () => {
     return "http://localhost:5000";
   }
 
-  // PRIORITY 4: For Cloudflare Workers/Pages - point directly to Render backend
+  // PRIORITY 4: For Cloudflare Workers/Pages - use current origin for API proxy
   if (window.location.hostname.includes('workers.dev') || 
       window.location.hostname.includes('pages.dev')) {
-    return "https://projectnow.onrender.com";
+    return window.location.origin;
   }
 
   // PRIORITY 5: For ALL other production deployments - use Render backend
