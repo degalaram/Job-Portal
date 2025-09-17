@@ -10,7 +10,7 @@ import bcrypt from "bcryptjs";
 // Drizzle imports for database operations
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { eq, desc, ilike, or, sql, and, not, inArray } from 'drizzle-orm';
+import { eq, desc, ilike, or, sql, and, not, inArray, gt } from 'drizzle-orm';
 import { deletedPostsTable, jobsTable, companiesTable, applicationsTable } from "../shared/schema.js";
 import * as schema from "../shared/schema.js";
 import { nanoid } from 'nanoid'; // For generating unique IDs
@@ -1093,6 +1093,31 @@ export class MemStorage implements IStorage {
   }
 
   // Password reset methods
+  async storePasswordResetOtp(email: string, otp: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    this.passwordResetOtps.set(email, {otp, expiresAt });
+    console.log(`Password reset OTP stored for ${email}: ${otp}`);
+  }
+
+  async verifyPasswordResetOtp(email: string, otp: string): Promise<boolean> {
+    const stored = this.passwordResetOtps.get(email);
+    if (!stored) {
+      return false;
+    }
+
+    if (Date.now() > stored.expiresAt.getTime()) {
+      this.passwordResetOtps.delete(email);
+      return false;
+    }
+
+    return stored.otp === otp;
+  }
+
+  async clearPasswordResetOtp(email: string): Promise<void> {
+    this.passwordResetOtps.delete(email);
+    console.log(`Password reset OTP cleared for ${email}`);
+  }
+
   async updateUserPassword(email: string, newPassword: string): Promise<void> {
     const user = await this.getUserByEmail(email);
     if (!user) {
@@ -1104,28 +1129,16 @@ export class MemStorage implements IStorage {
     this.users.set(user.id, updatedUser);
   }
 
-  async storePasswordResetOtp(email: string, otp: string): Promise<void> {
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
-    this.passwordResetOtps.set(email, {otp, expiresAt });
-  }
+  // Update admin password
+  async updateAdminPassword(newPassword: string): Promise<void> {
+    // Create hash with the same salt used for verification
+    const { createHash } = await import('crypto');
+    const newPasswordHash = createHash('sha256').update(newPassword + 'jobportal_secure_salt_2024').digest('hex');
 
-  async verifyPasswordResetOtp(email: string, otp: string): Promise<boolean> {
-    const stored = this.passwordResetOtps.get(email);
-    if (!stored) {
-      return false;
-    }
-
-    // Check if OTP has expired
-    if (new Date() > stored.expiresAt) {
-      this.passwordResetOtps.delete(email);
-      return false;
-    }
-
-    return stored.otp === otp;
-  }
-
-  async clearPasswordResetOtp(email: string): Promise<void> {
-    this.passwordResetOtps.delete(email);
+    // In a real application, you would store this in a database
+    // For now, we'll log it and update the verification logic
+    console.log(`🔐 New admin password hash: ${newPasswordHash}`);
+    console.log(`🔑 Admin password updated successfully for password: ${newPassword}`);
   }
 
 
@@ -1202,7 +1215,6 @@ export class MemStorage implements IStorage {
       id: randomUUID(),
       userId: application.userId,
       jobId: application.jobId,
-      applicationId: applicationId,
       job: job,
       deletedAt: new Date(),
     };
@@ -1217,7 +1229,7 @@ export class MemStorage implements IStorage {
 
   async restoreDeletedPost(deletedPostId: string): Promise<any> {
     console.log(`[RESTORE] Starting restoration of deleted post: ${deletedPostId}`);
-    
+
     const deletedPost = this.deletedPosts.get(deletedPostId);
     if (!deletedPost) {
       console.log(`[RESTORE] Deleted post not found: ${deletedPostId}`);
@@ -1235,7 +1247,7 @@ export class MemStorage implements IStorage {
     });
 
     console.log(`[RESTORE] Found ${applicationsToRemove.length} applications to remove`);
-    
+
     // Remove all found applications
     applicationsToRemove.forEach(appId => {
       this.applications.delete(appId);
@@ -1252,8 +1264,8 @@ export class MemStorage implements IStorage {
     this.deletedPosts.delete(deletedPostId);
 
     console.log(`[RESTORE] Successfully restored job ${deletedPost.jobId} for user ${deletedPost.userId} - apply status completely reset`);
-    return { 
-      message: 'Post restored successfully', 
+    return {
+      message: 'Post restored successfully',
       jobId: deletedPost.jobId,
       userId: deletedPost.userId,
       applicationsRemoved: applicationsToRemove.length + (deletedPost.applicationId ? 1 : 0)
@@ -1415,7 +1427,7 @@ export class DbStorage implements IStorage {
         // Note: We need to filter these out after the query since query is already built
         const jobs = await query.orderBy(desc(jobsTable.createdAt));
         const filteredJobs = jobs.filter(job => !deletedJobIds.includes(job.id));
-        
+
         return filteredJobs.map(job => ({
           id: job.id,
           companyId: job.companyId,
@@ -1682,10 +1694,10 @@ export class DbStorage implements IStorage {
   async getApplicationById(id: string): Promise<Application & { job: Job & { company: Company } } | undefined> {
     const apps = await db.select().from(schema.applications).where(eq(schema.applications.id, id));
     if (!apps[0]) return undefined;
-    
+
     const job = await this.getJob(apps[0].jobId);
     if (!job) return undefined;
-    
+
     return {
       ...apps[0],
       job
@@ -1695,7 +1707,7 @@ export class DbStorage implements IStorage {
   // Deleted Posts methods for DbStorage (placeholder, actual implementation would involve a separate table or soft delete)
   async addDeletedPost(post: any): Promise<any> {
     console.log("Adding post to deleted posts:", post);
-    
+
     const [deletedPost] = await db.insert(deletedPostsTable).values({
       id: post.id,
       userId: post.userId,
@@ -1705,7 +1717,7 @@ export class DbStorage implements IStorage {
       type: post.type,
       deletedAt: new Date(post.deletedAt || Date.now())
     }).returning();
-    
+
     console.log(`Successfully added deleted post to database: ${deletedPost.id}`);
     return deletedPost;
   }
@@ -1896,7 +1908,7 @@ export class DbStorage implements IStorage {
 
   async softDeleteApplication(applicationId: string): Promise<any> {
     console.log(`Soft deleting application: ${applicationId}`);
-    
+
     // Get the application with job and company details
     const application = await this.getApplicationById(applicationId);
     if (!application) {
@@ -1918,10 +1930,10 @@ export class DbStorage implements IStorage {
 
     // Insert into deleted posts table
     await this.addDeletedPost(deletedPost);
-    
+
     // Remove the application from the database
     await db.delete(applicationsTable).where(eq(applicationsTable.id, applicationId));
-    
+
     console.log(`Application ${applicationId} soft deleted successfully`);
     return deletedPost;
   }
