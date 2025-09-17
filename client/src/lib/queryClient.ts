@@ -24,7 +24,7 @@ const getApiBaseUrl = () => {
   }
 
   // PRIORITY 4: For Cloudflare Pages and other production deployments
-  const productionUrl = "https://project-1-yxba.onrender.com";
+  const productionUrl = "https://projectnow.onrender.com";
   console.log('Using production URL:', productionUrl);
   return productionUrl;
 };
