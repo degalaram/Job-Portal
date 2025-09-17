@@ -21,7 +21,7 @@ import {
   Edit
 } from 'lucide-react';
 import type { InsertCompany } from '@shared/schema';
-import { getCompanyLogoFromUrl } from '@/utils/skillImages';
+import { getCompanyLogoFromUrl, getCompanyLogoWithFallback } from '@/utils/skillImages';
 
 interface DeletedCompany {
   id: string;
@@ -358,24 +358,24 @@ export default function DeletedCompanies() {
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
                         <div className="w-12 h-12 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
-                          {company.logo || getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name) ? (
-                            <img 
-                              src={company.logo || getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name)!} 
-                              alt={company.name}
-                              className="w-8 h-8 object-contain rounded"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  parent.innerHTML = `<div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                              <span className="text-sm font-bold text-blue-600">{company.name.charAt(0).toUpperCase()}</span>
-                            </div>
-                          )}
+                          <img 
+                            src={getCompanyLogoWithFallback(company)} 
+                            alt={company.name}
+                            className="w-8 h-8 object-contain rounded"
+                            onLoad={(e) => {
+                              // If the image loads successfully, we're good
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'block';
+                            }}
+                            onError={(e) => {
+                              // If image fails to load, show fallback
+                              const target = e.target as HTMLImageElement;
+                              const parent = target.parentElement;
+                              if (parent) {
+                                parent.innerHTML = `<div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
+                              }
+                            }}
+                          />
                         </div>
                         <div>
                           <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
