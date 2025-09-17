@@ -154,170 +154,132 @@ export const getSkillImage = (skill: string) => {
 };
 
 // Company logo utility function for dynamic URL analysis
-export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, companyName?: string): string | null => {
-  // Major company mappings with their known domains
-  const companyMappings: Record<string, string> = {
+export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, name?: string): string | null => {
+  // Predefined company logos for well-known companies
+  const companyLogos: { [key: string]: string } = {
     'microsoft': 'https://logo.clearbit.com/microsoft.com',
     'google': 'https://logo.clearbit.com/google.com',
     'amazon': 'https://logo.clearbit.com/amazon.com',
-    'apple': 'https://logo.clearbit.com/apple.com',
     'facebook': 'https://logo.clearbit.com/facebook.com',
     'meta': 'https://logo.clearbit.com/meta.com',
+    'apple': 'https://logo.clearbit.com/apple.com',
     'netflix': 'https://logo.clearbit.com/netflix.com',
     'tesla': 'https://logo.clearbit.com/tesla.com',
-    'nvidia': 'https://logo.clearbit.com/nvidia.com',
-    'intel': 'https://logo.clearbit.com/intel.com',
+    'twitter': 'https://logo.clearbit.com/twitter.com',
+    'x': 'https://logo.clearbit.com/x.com',
+    'linkedin': 'https://logo.clearbit.com/linkedin.com',
+    'uber': 'https://logo.clearbit.com/uber.com',
+    'airbnb': 'https://logo.clearbit.com/airbnb.com',
+    'spotify': 'https://logo.clearbit.com/spotify.com',
     'adobe': 'https://logo.clearbit.com/adobe.com',
     'salesforce': 'https://logo.clearbit.com/salesforce.com',
     'oracle': 'https://logo.clearbit.com/oracle.com',
     'ibm': 'https://logo.clearbit.com/ibm.com',
-    'cisco': 'https://logo.clearbit.com/cisco.com',
-    'uber': 'https://logo.clearbit.com/uber.com',
-    'airbnb': 'https://logo.clearbit.com/airbnb.com',
-    'spotify': 'https://logo.clearbit.com/spotify.com',
-    'twitter': 'https://logo.clearbit.com/twitter.com',
-    'x': 'https://logo.clearbit.com/x.com',
-    'linkedin': 'https://logo.clearbit.com/linkedin.com',
-    'paypal': 'https://logo.clearbit.com/paypal.com',
-    // Indian companies
+    'intel': 'https://logo.clearbit.com/intel.com',
+    'nvidia': 'https://logo.clearbit.com/nvidia.com',
     'tcs': 'https://logo.clearbit.com/tcs.com',
     'tata consultancy services': 'https://logo.clearbit.com/tcs.com',
-    'tata consultancy': 'https://logo.clearbit.com/tcs.com',
     'infosys': 'https://logo.clearbit.com/infosys.com',
-    'infosys limited': 'https://logo.clearbit.com/infosys.com',
     'wipro': 'https://logo.clearbit.com/wipro.com',
-    'wipro limited': 'https://logo.clearbit.com/wipro.com',
-    'hcl': 'https://logo.clearbit.com/hcltech.com',
-    'hcl technologies': 'https://logo.clearbit.com/hcltech.com',
     'accenture': 'https://logo.clearbit.com/accenture.com',
     'cognizant': 'https://logo.clearbit.com/cognizant.com',
-    'capgemini': 'https://logo.clearbit.com/capgemini.com',
+    'hcl': 'https://logo.clearbit.com/hcltech.com',
+    'hcl technologies': 'https://logo.clearbit.com/hcltech.com',
     'tech mahindra': 'https://logo.clearbit.com/techmahindra.com',
-    'mahindra': 'https://logo.clearbit.com/mahindra.com',
-    'flipkart': 'https://logo.clearbit.com/flipkart.com',
-    'paytm': 'https://logo.clearbit.com/paytm.com',
-    'ola': 'https://logo.clearbit.com/olacabs.com',
-    'swiggy': 'https://logo.clearbit.com/swiggy.com',
-    'zomato': 'https://logo.clearbit.com/zomato.com',
-    'byju': 'https://logo.clearbit.com/byjus.com',
-    'byjus': 'https://logo.clearbit.com/byjus.com',
-    'freshworks': 'https://logo.clearbit.com/freshworks.com',
-    'zoho': 'https://logo.clearbit.com/zoho.com',
-    'zoho corporation': 'https://logo.clearbit.com/zoho.com',
+    'capgemini': 'https://logo.clearbit.com/capgemini.com',
+    'deloitte': 'https://logo.clearbit.com/deloitte.com',
+    'pwc': 'https://logo.clearbit.com/pwc.com',
+    'ey': 'https://logo.clearbit.com/ey.com',
+    'kpmg': 'https://logo.clearbit.com/kpmg.com',
+    'jpmorgan': 'https://logo.clearbit.com/jpmorganchase.com',
+    'goldman sachs': 'https://logo.clearbit.com/goldmansachs.com',
+    'morgan stanley': 'https://logo.clearbit.com/morganstanley.com',
+    'citigroup': 'https://logo.clearbit.com/citigroup.com',
+    'bank of america': 'https://logo.clearbit.com/bankofamerica.com',
+    'wells fargo': 'https://logo.clearbit.com/wellsfargo.com',
+    'adp': 'https://logo.clearbit.com/adp.com',
+    'automatic data processing': 'https://logo.clearbit.com/adp.com',
+    'honeywell': 'https://logo.clearbit.com/honeywell.com'
   };
 
-  // First try company name matching with enhanced logic
-  if (companyName) {
-    const cleanName = companyName.toLowerCase().trim();
+  if (!name) return null;
 
-    // Direct match
-    if (companyMappings[cleanName]) {
-      return companyMappings[cleanName];
-    }
+  const normalizedName = name.toLowerCase().trim();
 
-    // Enhanced partial match - check for keywords
-    for (const [key, logoUrl] of Object.entries(companyMappings)) {
-      const keyWords = key.split(' ');
-      const nameWords = cleanName.split(' ');
-
-      // Check if any significant word matches
-      const hasMatch = keyWords.some(keyWord => 
-        nameWords.some(nameWord => 
-          (keyWord.length > 2 && nameWord.includes(keyWord)) ||
-          (nameWord.length > 2 && keyWord.includes(nameWord))
-        )
-      );
-
-      if (hasMatch) {
-        return logoUrl;
-      }
+  // Check for exact company name matches first
+  for (const [key, logoUrl] of Object.entries(companyLogos)) {
+    if (normalizedName.includes(key)) {
+      return logoUrl;
     }
   }
 
-  // Try to extract domain from website with better parsing
+  // Try to extract domain from website first (most reliable)
   if (website && website.trim()) {
     try {
-      let url = website.trim();
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
+      let cleanWebsite = website.trim();
+      if (!cleanWebsite.startsWith('http')) {
+        cleanWebsite = `https://${cleanWebsite}`;
       }
-      const domain = new URL(url).hostname.replace('www.', '');
+      const url = new URL(cleanWebsite);
+      const domain = url.hostname.replace('www.', '');
       return `https://logo.clearbit.com/${domain}`;
     } catch (error) {
-      // Try without protocol
-      try {
-        const cleanWebsite = website.replace(/^(https?:\/\/)?(www\.)?/, '');
-        const domainPart = cleanWebsite.split('/')[0];
-        if (domainPart && domainPart.includes('.')) {
-          return `https://logo.clearbit.com/${domainPart}`;
-        }
-      } catch (e) {
-        console.log('Error parsing website URL:', e);
-      }
+      console.log('Error parsing website URL:', error);
     }
   }
 
-  // Try to extract company info from LinkedIn URL with enhanced parsing
+  // Try to extract company slug from LinkedIn URL
   if (linkedinUrl && linkedinUrl.trim()) {
     try {
-      let url = linkedinUrl.trim();
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
-      }
-
-      const linkedinUrlObj = new URL(url);
-      const pathParts = linkedinUrlObj.pathname.split('/');
+      const url = new URL(linkedinUrl);
+      const pathParts = url.pathname.split('/').filter(part => part);
       const companyIndex = pathParts.findIndex(part => part === 'company');
 
-      if (companyIndex !== -1 && companyIndex + 1 < pathParts.length) {
+      if (companyIndex !== -1 && pathParts[companyIndex + 1]) {
         const companySlug = pathParts[companyIndex + 1];
 
-        if (companySlug && companySlug !== 'company') {
-          // Check if company slug matches any known mapping
-          const slugLower = companySlug.toLowerCase();
+        // Special mappings for LinkedIn slugs to actual domains
+        const linkedinToDomain: { [key: string]: string } = {
+          'microsoft': 'microsoft.com',
+          'accenture': 'accenture.com',
+          'infosys': 'infosys.com',
+          'tcs': 'tcs.com',
+          'wipro': 'wipro.com',
+          'cognizant': 'cognizant.com',
+          'hcl-technologies': 'hcltech.com',
+          'tech-mahindra': 'techmahindra.com',
+          'adp': 'adp.com',
+          'honeywell': 'honeywell.com'
+        };
 
-          // Direct slug match
-          if (companyMappings[slugLower]) {
-            return companyMappings[slugLower];
-          }
-
-          // Partial slug match
-          for (const [key, logoUrl] of Object.entries(companyMappings)) {
-            if (slugLower.includes(key) || key.includes(slugLower)) {
-              return logoUrl;
-            }
-          }
-
-          // Try common domain patterns based on LinkedIn company slug
-          const possibleDomains = [
-            `${companySlug}.com`,
-            `${companySlug}.co.in`,
-            `${companySlug}.in`,
-            `${companySlug}.org`,
-            `${companySlug}.net`
-          ];
-
-          return `https://logo.clearbit.com/${possibleDomains[0]}`;
+        if (linkedinToDomain[companySlug]) {
+          return `https://logo.clearbit.com/${linkedinToDomain[companySlug]}`;
         }
+
+        // Try common domain patterns
+        const possibleDomains = [
+          `${companySlug}.com`,
+          `${companySlug.replace('-', '')}.com`,
+          `${companySlug}.co`,
+          `${companySlug}.in`,
+          `${companySlug}.org`,
+          `${companySlug}.net`
+        ];
+
+        return `https://logo.clearbit.com/${possibleDomains[0]}`;
       }
     } catch (error) {
       console.log('Error parsing LinkedIn URL:', error);
     }
   }
 
-  // Fallback: try to generate from company name
-  if (companyName && companyName.trim().length > 0) {
-    const cleanName = companyName.toLowerCase().trim()
-      .replace(/[^a-z0-9\s]/g, '') // Remove special characters
-      .replace(/\s+/g, '') // Remove spaces
-      .replace(/(limited|ltd|inc|corp|corporation|llc|pvt)$/i, ''); // Remove company suffixes
+  // Fallback: generate domain from company name
+  const cleanName = normalizedName
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
 
-    if (cleanName.length > 2) {
-      return `https://logo.clearbit.com/${cleanName}.com`;
-    }
-  }
-
-  return null;
+  return `https://logo.clearbit.com/${cleanName}.com`;
 };
 
 // Icon fallback for skills without images
