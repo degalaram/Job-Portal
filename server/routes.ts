@@ -607,13 +607,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`Company updated successfully: ${companyId}`);
-      res.json({ message: "Company updated successfully", company: updatedCompany });
+      res.json(updatedCompany);
     } catch (error) {
       console.error("Error updating company:", error);
       if (error instanceof Error) {
-        res.status(400).json({ message: error.message, details: error.stack });
+        res.status(400).json({ message: error.message });
       } else {
-        res.status(500).json({ message: "Failed to update company", error: String(error) });
+        res.status(500).json({ message: "Failed to update company" });
       }
     }
   });
