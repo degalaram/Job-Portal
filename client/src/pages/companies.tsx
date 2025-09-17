@@ -12,7 +12,7 @@ import { Navbar } from '@/components/job-portal/navbar';
 import { Footer } from '@/components/job-portal/footer';
 import { Plus, Building, Globe, Linkedin, MapPin, Trash2, Edit, Eye } from 'lucide-react';
 import type { InsertCompany, Company } from '@shared/schema';
-import { getCompanyLogoFromUrl } from '@/utils/skillImages';
+import { getCompanyLogoFromUrl, getCompanyLogoWithFallback } from '@/utils/skillImages';
 
 function AddCompanyDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -443,11 +443,8 @@ export default function Companies() {
   });
 
   const getCompanyLogo = (company: Company) => {
-    // Always use the centralized utility function for consistent logo generation
-    const generatedLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
-    
-    // Use stored logo if available, otherwise use generated logo
-    return company.logo || generatedLogo;
+    // Use the enhanced logo function with better fallbacks
+    return getCompanyLogoWithFallback(company);
   };
 
   const handleDeleteCompany = (companyId: string, companyName: string) => {
@@ -525,24 +522,24 @@ export default function Companies() {
                   {/* Company Logo */}
                   <div className="flex-shrink-0">
                     <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
-                      {company.logo || getCompanyLogo(company) ? (
-                        <img 
-                          src={company.logo || getCompanyLogo(company)!} 
-                          alt={company.name}
-                          className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.innerHTML = `<div class="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-xs sm:text-sm md:text-lg font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <span className="text-xs sm:text-sm md:text-lg font-bold text-blue-600">{company.name.charAt(0).toUpperCase()}</span>
-                        </div>
-                      )}
+                      <img 
+                        src={getCompanyLogo(company)} 
+                        alt={company.name}
+                        className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
+                        onLoad={(e) => {
+                          // Ensure image is visible when loaded
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'block';
+                        }}
+                        onError={(e) => {
+                          // Fallback to letter avatar if image fails
+                          const target = e.target as HTMLImageElement;
+                          const parent = target.parentElement;
+                          if (parent) {
+                            parent.innerHTML = `<div class="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-xs sm:text-sm md:text-lg font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
+                          }
+                        }}
+                      />
                     </div>
                   </div>
 
