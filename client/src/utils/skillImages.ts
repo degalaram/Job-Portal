@@ -153,63 +153,133 @@ export const getSkillImage = (skill: string) => {
   return skillImages[skill] || null;
 };
 
-// Company logo utility function for dynamic URL analysis
+// Company logo utility function for dynamic URL analysis with multiple fallback sources
 export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, name?: string): string | null => {
-  // Predefined company logos for well-known companies
-  const companyLogos: { [key: string]: string } = {
-    'microsoft': 'https://logo.clearbit.com/microsoft.com',
-    'google': 'https://logo.clearbit.com/google.com',
-    'amazon': 'https://logo.clearbit.com/amazon.com',
-    'facebook': 'https://logo.clearbit.com/facebook.com',
-    'meta': 'https://logo.clearbit.com/meta.com',
-    'apple': 'https://logo.clearbit.com/apple.com',
-    'netflix': 'https://logo.clearbit.com/netflix.com',
-    'tesla': 'https://logo.clearbit.com/tesla.com',
-    'twitter': 'https://logo.clearbit.com/twitter.com',
-    'x': 'https://logo.clearbit.com/x.com',
-    'linkedin': 'https://logo.clearbit.com/linkedin.com',
-    'uber': 'https://logo.clearbit.com/uber.com',
-    'airbnb': 'https://logo.clearbit.com/airbnb.com',
-    'spotify': 'https://logo.clearbit.com/spotify.com',
-    'adobe': 'https://logo.clearbit.com/adobe.com',
-    'salesforce': 'https://logo.clearbit.com/salesforce.com',
-    'oracle': 'https://logo.clearbit.com/oracle.com',
-    'ibm': 'https://logo.clearbit.com/ibm.com',
-    'intel': 'https://logo.clearbit.com/intel.com',
-    'nvidia': 'https://logo.clearbit.com/nvidia.com',
-    'tcs': 'https://logo.clearbit.com/tcs.com',
-    'tata consultancy services': 'https://logo.clearbit.com/tcs.com',
-    'infosys': 'https://logo.clearbit.com/infosys.com',
-    'wipro': 'https://logo.clearbit.com/wipro.com',
-    'accenture': 'https://logo.clearbit.com/accenture.com',
-    'cognizant': 'https://logo.clearbit.com/cognizant.com',
-    'hcl': 'https://logo.clearbit.com/hcltech.com',
-    'hcl technologies': 'https://logo.clearbit.com/hcltech.com',
-    'tech mahindra': 'https://logo.clearbit.com/techmahindra.com',
-    'capgemini': 'https://logo.clearbit.com/capgemini.com',
-    'deloitte': 'https://logo.clearbit.com/deloitte.com',
-    'pwc': 'https://logo.clearbit.com/pwc.com',
-    'ey': 'https://logo.clearbit.com/ey.com',
-    'kpmg': 'https://logo.clearbit.com/kpmg.com',
-    'jpmorgan': 'https://logo.clearbit.com/jpmorganchase.com',
-    'goldman sachs': 'https://logo.clearbit.com/goldmansachs.com',
-    'morgan stanley': 'https://logo.clearbit.com/morganstanley.com',
-    'citigroup': 'https://logo.clearbit.com/citigroup.com',
-    'bank of america': 'https://logo.clearbit.com/bankofamerica.com',
-    'wells fargo': 'https://logo.clearbit.com/wellsfargo.com',
-    'adp': 'https://logo.clearbit.com/adp.com',
-    'automatic data processing': 'https://logo.clearbit.com/adp.com',
-    'honeywell': 'https://logo.clearbit.com/honeywell.com'
+  // Predefined company logos with multiple fallback sources
+  const companyLogos: { [key: string]: string[] } = {
+    'microsoft': [
+      'https://logo.clearbit.com/microsoft.com',
+      'https://img.logo.dev/microsoft.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/microsoft-5.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/200px-Microsoft_logo.svg.png'
+    ],
+    'google': [
+      'https://logo.clearbit.com/google.com',
+      'https://img.logo.dev/google.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/google-2015.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/200px-Google_2015_logo.svg.png'
+    ],
+    'amazon': [
+      'https://logo.clearbit.com/amazon.com',
+      'https://img.logo.dev/amazon.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/amazon-icon-1.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/200px-Amazon_logo.svg.png'
+    ],
+    'infosys': [
+      'https://logo.clearbit.com/infosys.com',
+      'https://img.logo.dev/infosys.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/infosys.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Infosys_logo.svg/200px-Infosys_logo.svg.png'
+    ],
+    'tcs': [
+      'https://logo.clearbit.com/tcs.com',
+      'https://img.logo.dev/tcs.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png'
+    ],
+    'tata consultancy services': [
+      'https://logo.clearbit.com/tcs.com',
+      'https://img.logo.dev/tcs.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png'
+    ],
+    'accenture': [
+      'https://logo.clearbit.com/accenture.com',
+      'https://img.logo.dev/accenture.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/accenture.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Accenture.svg/200px-Accenture.svg.png'
+    ],
+    'wipro': [
+      'https://logo.clearbit.com/wipro.com',
+      'https://img.logo.dev/wipro.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/wipro.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Wipro_Primary_Logo_Color_RGB.svg/200px-Wipro_Primary_Logo_Color_RGB.svg.png'
+    ],
+    'cognizant': [
+      'https://logo.clearbit.com/cognizant.com',
+      'https://img.logo.dev/cognizant.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/cognizant-2.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Cognizant_logo_2022.svg/200px-Cognizant_logo_2022.svg.png'
+    ],
+    'hcl': [
+      'https://logo.clearbit.com/hcltech.com',
+      'https://img.logo.dev/hcltech.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/hcl-2.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/HCL_Technologies_logo.svg/200px-HCL_Technologies_logo.svg.png'
+    ],
+    'hcl technologies': [
+      'https://logo.clearbit.com/hcltech.com',
+      'https://img.logo.dev/hcltech.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/hcl-2.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/HCL_Technologies_logo.svg/200px-HCL_Technologies_logo.svg.png'
+    ],
+    'tech mahindra': [
+      'https://logo.clearbit.com/techmahindra.com',
+      'https://img.logo.dev/techmahindra.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/tech-mahindra.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Tech_Mahindra_New_Logo.svg/200px-Tech_Mahindra_New_Logo.svg.png'
+    ],
+    'capgemini': [
+      'https://logo.clearbit.com/capgemini.com',
+      'https://img.logo.dev/capgemini.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/capgemini-2.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Capgemini_logo.svg/200px-Capgemini_logo.svg.png'
+    ],
+    'deloitte': [
+      'https://logo.clearbit.com/deloitte.com',
+      'https://img.logo.dev/deloitte.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://cdn.worldvectorlogo.com/logos/deloitte-2.svg',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Deloitte.svg/200px-Deloitte.svg.png'
+    ],
+    'facebook': ['https://logo.clearbit.com/facebook.com', 'https://img.logo.dev/facebook.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'meta': ['https://logo.clearbit.com/meta.com', 'https://img.logo.dev/meta.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'apple': ['https://logo.clearbit.com/apple.com', 'https://img.logo.dev/apple.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'netflix': ['https://logo.clearbit.com/netflix.com', 'https://img.logo.dev/netflix.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'tesla': ['https://logo.clearbit.com/tesla.com', 'https://img.logo.dev/tesla.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'twitter': ['https://logo.clearbit.com/twitter.com', 'https://img.logo.dev/twitter.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'x': ['https://logo.clearbit.com/x.com', 'https://img.logo.dev/x.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'linkedin': ['https://logo.clearbit.com/linkedin.com', 'https://img.logo.dev/linkedin.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'uber': ['https://logo.clearbit.com/uber.com', 'https://img.logo.dev/uber.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'airbnb': ['https://logo.clearbit.com/airbnb.com', 'https://img.logo.dev/airbnb.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'spotify': ['https://logo.clearbit.com/spotify.com', 'https://img.logo.dev/spotify.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'adobe': ['https://logo.clearbit.com/adobe.com', 'https://img.logo.dev/adobe.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'salesforce': ['https://logo.clearbit.com/salesforce.com', 'https://img.logo.dev/salesforce.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'oracle': ['https://logo.clearbit.com/oracle.com', 'https://img.logo.dev/oracle.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'ibm': ['https://logo.clearbit.com/ibm.com', 'https://img.logo.dev/ibm.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'intel': ['https://logo.clearbit.com/intel.com', 'https://img.logo.dev/intel.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'nvidia': ['https://logo.clearbit.com/nvidia.com', 'https://img.logo.dev/nvidia.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'pwc': ['https://logo.clearbit.com/pwc.com', 'https://img.logo.dev/pwc.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'ey': ['https://logo.clearbit.com/ey.com', 'https://img.logo.dev/ey.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'kpmg': ['https://logo.clearbit.com/kpmg.com', 'https://img.logo.dev/kpmg.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'jpmorgan': ['https://logo.clearbit.com/jpmorganchase.com', 'https://img.logo.dev/jpmorganchase.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'goldman sachs': ['https://logo.clearbit.com/goldmansachs.com', 'https://img.logo.dev/goldmansachs.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'morgan stanley': ['https://logo.clearbit.com/morganstanley.com', 'https://img.logo.dev/morganstanley.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'citigroup': ['https://logo.clearbit.com/citigroup.com', 'https://img.logo.dev/citigroup.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'bank of america': ['https://logo.clearbit.com/bankofamerica.com', 'https://img.logo.dev/bankofamerica.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'wells fargo': ['https://logo.clearbit.com/wellsfargo.com', 'https://img.logo.dev/wellsfargo.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'adp': ['https://logo.clearbit.com/adp.com', 'https://img.logo.dev/adp.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'automatic data processing': ['https://logo.clearbit.com/adp.com', 'https://img.logo.dev/adp.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ'],
+    'honeywell': ['https://logo.clearbit.com/honeywell.com', 'https://img.logo.dev/honeywell.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ']
   };
 
   if (!name) return null;
 
   const normalizedName = name.toLowerCase().trim();
 
-  // Check for exact company name matches first
-  for (const [key, logoUrl] of Object.entries(companyLogos)) {
+  // Check for exact company name matches first - return first available logo
+  for (const [key, logoUrls] of Object.entries(companyLogos)) {
     if (normalizedName.includes(key)) {
-      return logoUrl;
+      return logoUrls[0]; // Return the primary logo URL
     }
   }
 
@@ -222,7 +292,16 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
       }
       const url = new URL(cleanWebsite);
       const domain = url.hostname.replace('www.', '');
-      return `https://logo.clearbit.com/${domain}`;
+      
+      // Try multiple logo services
+      const logoSources = [
+        `https://logo.clearbit.com/${domain}`,
+        `https://img.logo.dev/${domain}?token=pk_X6tOkA1jTMKJrfaW2xUfaQ`,
+        `https://logo.clearbit.com/${domain}?size=200`,
+        `https://favicons.githubusercontent.com/${domain}`
+      ];
+      
+      return logoSources[0]; // Return primary source
     } catch (error) {
       console.log('Error parsing website URL:', error);
     }
@@ -273,13 +352,53 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
     }
   }
 
-  // Fallback: generate domain from company name
+  // Fallback: generate domain from company name with multiple logo sources
   const cleanName = normalizedName
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, '')
     .toLowerCase();
 
-  return `https://logo.clearbit.com/${cleanName}.com`;
+  // Try multiple fallback sources
+  const fallbackSources = [
+    `https://logo.clearbit.com/${cleanName}.com`,
+    `https://img.logo.dev/${cleanName}.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ`,
+    `https://favicons.githubusercontent.com/${cleanName}.com`
+  ];
+
+  return fallbackSources[0];
+};
+
+// Enhanced logo loading with better error handling and fallbacks
+export const getCompanyLogoWithFallback = (company: { name: string; website?: string; linkedinUrl?: string; logo?: string }): string => {
+  // If company already has a logo URL, use it
+  if (company.logo && company.logo.trim()) {
+    return company.logo;
+  }
+
+  // Try to get logo from our enhanced function
+  const generatedLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
+  
+  if (generatedLogo) {
+    return generatedLogo;
+  }
+
+  // Ultimate fallback - create a data URL with company initial
+  const initial = company.name.charAt(0).toUpperCase();
+  const colors = [
+    '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
+  ];
+  const color = colors[company.name.length % colors.length];
+  
+  // Create a simple SVG logo as data URL
+  const svg = `
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="100" fill="${color}" rx="12"/>
+      <text x="50" y="65" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle" font-weight="bold">${initial}</text>
+    </svg>
+  `;
+  
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
 // Icon fallback for skills without images
