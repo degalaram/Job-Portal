@@ -1113,17 +1113,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error resetting password:", error);
       res.status(500).json({ success: false, message: "Failed to reset password" });
     }
-  });valid or expired OTP" });
-      }
-
-      // Clear the OTP after successful verification
-      await storage.clearPasswordResetOtp(email);
-
-      res.json({ success: true, message: "Recovery verified successfully" });
-    } catch (error) {
-      console.error("Error verifying recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to verify recovery OTP" });
-    }
   });
 
   // Health check endpoint
