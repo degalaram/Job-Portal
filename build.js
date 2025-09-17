@@ -48,11 +48,25 @@ try {
     // Use the existing vite config
     configFile: resolve(__dirname, 'vite.config.ts'),
     mode: 'production',
-    logLevel: 'info'
+    logLevel: 'info',
+    build: {
+      outDir: resolve(__dirname, 'dist'),
+      emptyOutDir: true,
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            router: ['wouter'],
+            ui: ['lucide-react']
+          }
+        }
+      }
+    }
   })
   
   console.log('✅ Frontend build completed successfully!')
-  console.log('📁 Build output location: client/dist')
+  console.log('📁 Build output location: dist')
   
 } catch (error) {
   console.error('❌ Frontend build failed:', error)
