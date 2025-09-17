@@ -17,6 +17,9 @@ import {
   Database,
   Cpu
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface Project {
   id: string;
@@ -31,9 +34,75 @@ interface Project {
   featured: boolean;
 }
 
+// Mock function to simulate saving edits
+const saveProjectEdits = async (projectId: string, updatedProjectData: any) => {
+  console.log(`Saving edits for project ${projectId}:`, updatedProjectData);
+  // In a real application, you would make an API call here
+  return new Promise(resolve => setTimeout(() => resolve({ success: true }), 500));
+};
+
+// Dialog component for editing project details
+const EditProjectDialog = ({ project, children }: { project: Project; children: React.ReactNode }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [editedProject, setEditedProject] = useState<Partial<Project>>(project);
+
+  const handleSave = async () => {
+    await saveProjectEdits(project.id, editedProject);
+    setIsOpen(false);
+    alert('Project saved successfully!');
+    // In a real app, you would update the main projects state or refetch data
+  };
+
+  const handleChange = (field: keyof Partial<Project>, value: string) => {
+    setEditedProject(prev => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <>
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="title" className="text-right">Title</Label>
+              <Input id="title" value={editedProject.title || ''} onChange={(e) => handleChange('title', e.target.value)} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="description" className="text-right">Description</Label>
+              <Input id="description" value={editedProject.description || ''} onChange={(e) => handleChange('description', e.target.value)} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="githubUrl" className="text-right">GitHub URL</Label>
+              <Input id="githubUrl" value={editedProject.githubUrl || ''} onChange={(e) => handleChange('githubUrl', e.target.value)} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="liveUrl" className="text-right">Live URL</Label>
+              <Input id="liveUrl" value={editedProject.liveUrl || ''} onChange={(e) => handleChange('liveUrl', e.target.value)} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="skills" className="text-right">Skills</Label>
+              <Input id="skills" value={editedProject.technologies?.join(', ') || ''} onChange={(e) => handleChange('technologies', e.target.value.split(', '))} className="col-span-3" placeholder="React, Node.js, Python..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" onClick={handleSave}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <div onClick={() => setIsOpen(true)}>
+        {children}
+      </div>
+    </>
+  );
+};
+
 export default function Projects() {
   const [, navigate] = useLocation();
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [editingProject, setEditingProject] = useState<string | null>(null);
+  const [editedProjects, setEditedProjects] = useState<{ [key: string]: Partial<Project> }>({});
 
   // Check if user is logged in
   useEffect(() => {
@@ -177,6 +246,8 @@ export default function Projects() {
     }
   };
 
+  // Removed handleEditProject, handleCancelEdit, handleSaveProject, handleUpdateProject as they are no longer needed for inline editing
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900"> {/* Added dark:bg-gray-900 for dark mode */}
       <Navbar />
@@ -206,6 +277,7 @@ export default function Projects() {
                         Featured
                       </Badge>
                     </div>
+                    {/* Removed inline editing for title and description */}
                     <CardTitle className="text-lg text-gray-900 dark:text-white">{project.title}</CardTitle> {/* Added dark:text-white */}
                     <CardDescription className="text-gray-600 dark:text-gray-300">{project.description}</CardDescription> {/* Added dark:text-gray-300 */}
                   </CardHeader>
@@ -232,13 +304,22 @@ export default function Projects() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <EditProjectDialog project={project}>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                          >
+                            Edit
+                          </Button>
+                        </EditProjectDialog>
                         {project.githubUrl && (
                           <Button 
                             size="sm" 
                             variant="outline"
                             onClick={() => window.open(project.githubUrl, '_blank')}
                             data-testid={`github-${project.id}`}
-                            className="text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700" // Added dark theme classes
+                            className="text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                           >
                             <Github className="w-4 h-4 mr-1 text-gray-700 dark:text-gray-300" /> {/* Added dark theme class */}
                             Code
@@ -304,6 +385,7 @@ export default function Projects() {
                         <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                       )}
                     </div>
+                    {/* Removed inline editing for title and description */}
                     <CardTitle className="text-lg text-gray-900 dark:text-white">{project.title}</CardTitle> {/* Added dark:text-white */}
                     <CardDescription className="text-gray-600 dark:text-gray-300">{project.description}</CardDescription> {/* Added dark:text-gray-300 */}
                   </CardHeader>
@@ -330,13 +412,22 @@ export default function Projects() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <EditProjectDialog project={project}>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                          >
+                            Edit
+                          </Button>
+                        </EditProjectDialog>
                         {project.githubUrl && (
                           <Button 
                             size="sm" 
                             variant="outline"
                             onClick={() => window.open(project.githubUrl, '_blank')}
                             data-testid={`github-${project.id}`}
-                            className="text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700" // Added dark theme classes
+                            className="text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                           >
                             <Github className="w-4 h-4 mr-1 text-gray-700 dark:text-gray-300" /> {/* Added dark theme class */}
                             Code
