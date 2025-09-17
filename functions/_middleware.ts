@@ -25,7 +25,7 @@ export const onRequest = async (context: any) => {
   
   // Proxy API routes to Render backend
   if (url.pathname.startsWith('/api/')) {
-    const backendUrl = (context.env.BACKEND_URL || 'https://project-1-yxba.onrender.com') + url.pathname + url.search;
+    const backendUrl = (context.env.BACKEND_URL || 'https://projectnow.onrender.com') + url.pathname + url.search;
     console.log('🔄 Proxying API request to:', backendUrl);
     
     const backendRequest = new Request(backendUrl, {
