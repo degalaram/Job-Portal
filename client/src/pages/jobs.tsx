@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +25,7 @@ import {
 } from 'lucide-react';
 import { FaWhatsapp, FaTelegram } from 'react-icons/fa';
 import type { Job, Company } from '@shared/schema';
+import { getCompanyLogoWithFallback } from '@/utils/skillImages'; // Import the enhanced logo function
 
 type JobWithCompany = Job & { company: Company };
 
@@ -247,14 +247,14 @@ export default function Jobs() {
           navigate('/login');
           return;
         }
-        
+
         const parsedUser = JSON.parse(userString);
         if (!parsedUser || !parsedUser.id) {
           console.log('Invalid user data, redirecting to login');
           navigate('/login');
           return;
         }
-        
+
         setUser(parsedUser);
         setIsAuthChecked(true);
       } catch (error) {
@@ -371,7 +371,7 @@ export default function Jobs() {
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
-      
+
       toast({
         title: 'Job deleted successfully',
         description: 'The job has been moved to deleted posts and can be restored within 5 days.',
@@ -470,7 +470,6 @@ export default function Jobs() {
     e.stopPropagation();
     if (!user) {
       navigate('/login');
-      return;
     }
 
     // If job has an apply URL, open it in a new tab
@@ -696,9 +695,9 @@ export default function Jobs() {
 
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
-                            {job.company.logo || getCompanyLogo(job.company) ? (
+                            {job.company.logo || getCompanyLogoWithFallback(job.company) ? ( // Use the new function here
                               <img 
-                                src={job.company.logo || getCompanyLogo(job.company)!} 
+                                src={job.company.logo || getCompanyLogoWithFallback(job.company)!} 
                                 alt={job.company.name}
                                 className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
                                 onError={(e) => {
