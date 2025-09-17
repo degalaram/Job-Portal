@@ -225,47 +225,36 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
 
   const updateCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      // Auto-analyze and set logo before sending - FORCE new logo generation
+      // Auto-analyze and set logo before sending
       const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
       const updatedData = {
         ...data,
-        logo: logoUrl || '' // Force new logo or empty string, don't use old logo
+        logo: logoUrl || data.logo || ''
       };
       
       console.log('Updating company with data:', updatedData);
       console.log('Generated logo URL:', logoUrl);
       const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
       
-      // apiRequest already handles errors and throws them, so if we get here, response is ok
       return response.json();
     },
     onSuccess: (result) => {
       console.log('Company update successful:', result);
       
-      // Immediately update the cache
+      // Update the cache with the returned data
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
         return (oldData || []).map((c: Company) => 
-          c.id === company.id ? { ...c, ...result.company || result } : c
+          c.id === company.id ? result : c
         );
       });
       
       toast({
         title: 'Company updated successfully',
-        description: `${formData.name} has been updated with logo analysis.`,
+        description: `${result.name} has been updated successfully.`,
       });
       
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setOpen(false);
-      
-      // Reset form data to prevent stale data
-      setFormData({
-        name: '',
-        description: '',
-        website: '',
-        linkedinUrl: '',
-        logo: '',
-        location: '',
-      });
     },
     onError: (error: any) => {
       console.error('Company update error:', error);
@@ -454,16 +443,11 @@ export default function Companies() {
   });
 
   const getCompanyLogo = (company: Company) => {
-    // Use the centralized utility function that properly analyzes URLs
-    const dynamicLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
-
-    // If we have a dynamic logo that's different from stored logo, prefer the dynamic one
-    if (dynamicLogo && company.logo !== dynamicLogo) {
-      return dynamicLogo;
-    }
-
-    // Otherwise use stored logo or fall back to dynamic logo
-    return company.logo || dynamicLogo;
+    // Always use the centralized utility function for consistent logo generation
+    const generatedLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
+    
+    // Use stored logo if available, otherwise use generated logo
+    return company.logo || generatedLogo;
   };
 
   const handleDeleteCompany = (companyId: string, companyName: string) => {
