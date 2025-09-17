@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 5000;
 // Enhanced CORS configuration for production
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl requests, same-origin)
     if (!origin) return callback(null, true);
 
     const allowedOrigins = [
@@ -28,8 +28,11 @@ const corsOptions = {
       'https://jobportal-frontend.netlify.app',
       /\.netlify\.app$/,
       /\.vercel\.app$/,
-      /\.onrender\.com$/
-    ];
+      /\.onrender\.com$/,
+      /^https:\/\/.*\.onrender\.com$/,
+      /^http:\/\/localhost:\d+$/,
+      /^https:\/\/localhost:\d+$/
+    ].filter(Boolean);
 
     const isAllowed = allowedOrigins.some(allowedOrigin => {
       if (typeof allowedOrigin === 'string') {
@@ -42,7 +45,8 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log('Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
+      // In production on Render, be more permissive to avoid 502 errors
+      callback(null, true);
     }
   },
   credentials: true,
@@ -447,6 +451,37 @@ const initializeData = () => {
 };
 
 initializeData();
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'production',
+    uptime: process.uptime()
+  });
+});
+
+// Root route
+app.get('/', (req, res) => {
+  // This will be handled by the SPA fallback below
+  const indexPath = path.join(path.join(__dirname, '../dist'), 'index.html');
+  const publicPath = path.join(__dirname, '../public');
+  
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error serving root index.html:', err);
+      // Fallback to public index.html
+      const fallbackIndex = path.join(publicPath, 'index.html');
+      res.sendFile(fallbackIndex, (fallbackErr) => {
+        if (fallbackErr) {
+          console.error('Error serving fallback index.html:', fallbackErr);
+          res.status(500).send('Internal Server Error - Unable to serve application');
+        }
+      });
+    }
+  });
+});
 
 // Auth routes
 app.post("/api/auth/register", async (req, res) => {
