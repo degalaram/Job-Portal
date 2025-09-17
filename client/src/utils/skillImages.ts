@@ -153,51 +153,51 @@ export const getSkillImage = (skill: string) => {
   return skillImages[skill] || null;
 };
 
-// Company logo utility function for dynamic URL analysis with multiple fallback sources
+// Company logo utility function with enhanced URL analysis and reliable sources
 export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, name?: string): string | null => {
-  // Predefined company logos with multiple fallback sources
+  // Enhanced company logos with reliable, working sources (Clearbit shutting down Dec 2025)
   const companyLogos: { [key: string]: string[] } = {
     'microsoft': [
-      'https://logo.clearbit.com/microsoft.com',
-      'https://img.logo.dev/microsoft.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/200px-Microsoft_logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/microsoft-5.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/200px-Microsoft_logo.svg.png'
+      'https://logo.clearbit.com/microsoft.com',
+      'https://favicons.githubusercontent.com/microsoft.com'
     ],
     'google': [
-      'https://logo.clearbit.com/google.com',
-      'https://img.logo.dev/google.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/200px-Google_2015_logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/google-2015.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/200px-Google_2015_logo.svg.png'
+      'https://logo.clearbit.com/google.com',
+      'https://favicons.githubusercontent.com/google.com'
     ],
     'amazon': [
-      'https://logo.clearbit.com/amazon.com',
-      'https://img.logo.dev/amazon.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/200px-Amazon_logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/amazon-icon-1.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/200px-Amazon_logo.svg.png'
+      'https://logo.clearbit.com/amazon.com',
+      'https://favicons.githubusercontent.com/amazon.com'
     ],
     'infosys': [
-      'https://logo.clearbit.com/infosys.com',
-      'https://img.logo.dev/infosys.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      '/public/images/infosys-logo.png',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Infosys_logo.svg/200px-Infosys_logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/infosys.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Infosys_logo.svg/200px-Infosys_logo.svg.png'
+      'https://logo.clearbit.com/infosys.com'
     ],
     'tcs': [
-      'https://logo.clearbit.com/tcs.com',
-      'https://img.logo.dev/tcs.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      '/public/images/tcs-logo.png',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png'
+      'https://logo.clearbit.com/tcs.com'
     ],
     'tata consultancy services': [
-      'https://logo.clearbit.com/tcs.com',
-      'https://img.logo.dev/tcs.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      '/public/images/tcs-logo.png',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png'
+      'https://logo.clearbit.com/tcs.com'
     ],
     'accenture': [
-      'https://logo.clearbit.com/accenture.com',
-      'https://img.logo.dev/accenture.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Accenture.svg/200px-Accenture.svg.png',
       'https://cdn.worldvectorlogo.com/logos/accenture.svg',
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Accenture.svg/200px-Accenture.svg.png'
+      'https://logo.clearbit.com/accenture.com',
+      'https://favicons.githubusercontent.com/accenture.com'
     ],
     'wipro': [
       'https://logo.clearbit.com/wipro.com',
@@ -293,12 +293,12 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
       const url = new URL(cleanWebsite);
       const domain = url.hostname.replace('www.', '');
       
-      // Try multiple logo services
+      // Try multiple reliable logo services (prioritizing stable ones)
       const logoSources = [
+        `https://favicons.githubusercontent.com/${domain}`,
+        `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
         `https://logo.clearbit.com/${domain}`,
-        `https://img.logo.dev/${domain}?token=pk_X6tOkA1jTMKJrfaW2xUfaQ`,
-        `https://logo.clearbit.com/${domain}?size=200`,
-        `https://favicons.githubusercontent.com/${domain}`
+        `https://cdn.worldvectorlogo.com/logos/${cleanName}.svg`
       ];
       
       return logoSources[0]; // Return primary source
@@ -332,7 +332,8 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
         };
 
         if (linkedinToDomain[companySlug]) {
-          return `https://logo.clearbit.com/${linkedinToDomain[companySlug]}`;
+          const domain = linkedinToDomain[companySlug];
+          return `https://favicons.githubusercontent.com/${domain}`;
         }
 
         // Try common domain patterns
@@ -345,7 +346,7 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
           `${companySlug}.net`
         ];
 
-        return `https://logo.clearbit.com/${possibleDomains[0]}`;
+        return `https://favicons.githubusercontent.com/${possibleDomains[0]}`;
       }
     } catch (error) {
       console.log('Error parsing LinkedIn URL:', error);
@@ -358,11 +359,11 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
     .replace(/\s+/g, '')
     .toLowerCase();
 
-  // Try multiple fallback sources
+  // Try multiple stable fallback sources
   const fallbackSources = [
-    `https://logo.clearbit.com/${cleanName}.com`,
-    `https://img.logo.dev/${cleanName}.com?token=pk_X6tOkA1jTMKJrfaW2xUfaQ`,
-    `https://favicons.githubusercontent.com/${cleanName}.com`
+    `https://favicons.githubusercontent.com/${cleanName}.com`,
+    `https://www.google.com/s2/favicons?domain=${cleanName}.com&sz=128`,
+    `https://logo.clearbit.com/${cleanName}.com`
   ];
 
   return fallbackSources[0];
