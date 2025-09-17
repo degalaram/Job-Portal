@@ -1,12 +1,12 @@
 
 name = "job-portal-frontend"
-compatibility_date = "2025-09-07"
+compatibility_date = "2024-09-07"
 
 [build]
-command = "npm run build:frontend"
+command = "node build.js"
 cwd = "."
 
 [assets]
-directory = "./client/dist"
+directory = "./dist"
 
 
