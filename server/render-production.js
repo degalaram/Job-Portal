@@ -1029,11 +1029,9 @@ app.use(express.static(publicPath, {
 
 // SPA routing fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
-  // Skip API routes, health checks, and static assets
+  // Skip API routes and health checks (let static assets be served by express.static middleware)
   if (req.path.startsWith('/api') || 
-      req.path.startsWith('/health') ||
-      req.path.startsWith('/assets') || 
-      req.path.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
+      req.path.startsWith('/health')) {
     return res.status(404).json({ message: 'Not found' });
   }
   
