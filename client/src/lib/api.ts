@@ -19,11 +19,11 @@ const getApiUrl = () => {
   // PRIORITY 4: For Cloudflare Workers/Pages - point directly to Render backend
   if (window.location.hostname.includes('workers.dev') || 
       window.location.hostname.includes('pages.dev')) {
-    return "https://project-1-yxba.onrender.com";
+    return "https://projectnow.onrender.com";
   }
 
   // PRIORITY 5: For ALL other production deployments - use Render backend
-  return "https://project-1-yxba.onrender.com";
+  return "https://projectnow.onrender.com";
 };
 
 const API_URL = getApiUrl();
