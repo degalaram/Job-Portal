@@ -13,6 +13,7 @@ import { Footer } from '@/components/job-portal/footer';
 import { Plus, Building, Globe, Linkedin, MapPin, Trash2, Edit, Eye } from 'lucide-react';
 import type { InsertCompany, Company } from '@shared/schema';
 import { getCompanyLogoFromUrl, getCompanyLogoWithFallback } from '@/utils/skillImages';
+import { SmartLogo } from '@/components/ui/smart-logo';
 
 function AddCompanyDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -29,11 +30,16 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
 
   const createCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      // Auto-analyze and set logo before sending
-      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
+      // Auto-analyze and set logo with fallback chain before sending
+      const logoUrl = getCompanyLogoWithFallback({
+        name: data.name,
+        website: data.website,
+        linkedinUrl: data.linkedinUrl,
+        logo: data.logo
+      });
       const updatedData = {
         ...data,
-        logo: logoUrl || data.logo
+        logo: logoUrl
       };
       
       const response = await apiRequest('POST', '/api/companies', updatedData);
@@ -85,10 +91,15 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Auto-populate logo based on company details
+    // Auto-populate logo with fallback chain based on company details
     const updatedFormData = {
       ...formData,
-      logo: getCompanyLogoFromUrl(formData.website, formData.linkedinUrl, formData.name) || formData.logo
+      logo: getCompanyLogoWithFallback({
+        name: formData.name,
+        website: formData.website,
+        linkedinUrl: formData.linkedinUrl,
+        logo: formData.logo
+      })
     };
 
     createCompanyMutation.mutate(updatedFormData);
@@ -225,11 +236,16 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
 
   const updateCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      // Auto-analyze and set logo before sending
-      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
+      // Auto-analyze and set logo with fallback chain before sending
+      const logoUrl = getCompanyLogoWithFallback({
+        name: data.name,
+        website: data.website,
+        linkedinUrl: data.linkedinUrl,
+        logo: data.logo
+      });
       const updatedData = {
         ...data,
-        logo: logoUrl || data.logo || ''
+        logo: logoUrl
       };
       
       console.log('Updating company with data:', updatedData);
@@ -442,10 +458,7 @@ export default function Companies() {
     },
   });
 
-  const getCompanyLogo = (company: Company) => {
-    // Use the enhanced logo function with better fallbacks
-    return getCompanyLogoWithFallback(company);
-  };
+  // Remove the old getCompanyLogo function since we're using SmartLogo component
 
   const handleDeleteCompany = (companyId: string, companyName: string) => {
     if (window.confirm(`Are you sure you want to move ${companyName} to trash? You can restore it from deleted companies within 7 days.`)) {
@@ -522,23 +535,11 @@ export default function Companies() {
                   {/* Company Logo */}
                   <div className="flex-shrink-0">
                     <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
-                      <img 
-                        src={getCompanyLogo(company)} 
-                        alt={company.name}
-                        className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
-                        onLoad={(e) => {
-                          // Ensure image is visible when loaded
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'block';
-                        }}
-                        onError={(e) => {
-                          // Fallback to letter avatar if image fails
-                          const target = e.target as HTMLImageElement;
-                          const parent = target.parentElement;
-                          if (parent) {
-                            parent.innerHTML = `<div class="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-xs sm:text-sm md:text-lg font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
-                          }
-                        }}
+                      <SmartLogo
+                        company={company}
+                        className="object-contain rounded"
+                        size={48} // Default size, will adapt based on container
+                        fallbackClassName="w-full h-full bg-blue-100 rounded-lg flex items-center justify-center"
                       />
                     </div>
                   </div>
