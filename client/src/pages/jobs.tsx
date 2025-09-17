@@ -269,13 +269,7 @@ export default function Jobs() {
   const { data: allJobs = [], isLoading, error: jobsError, refetch } = useQuery({
     queryKey: ['jobs', user?.id],
     queryFn: async () => {
-      const headers: Record<string, string> = {};
-      
-      if (user?.id) {
-        headers['user-id'] = user.id;
-      }
-      
-      const response = await apiRequest('GET', '/api/jobs', undefined, headers);
+      const response = await apiRequest('GET', '/api/jobs');
       return response.json();
     },
     staleTime: 30 * 1000, // 30 seconds
