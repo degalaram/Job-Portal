@@ -1,0 +1,16 @@
+{
+  "framework": null,
+  "buildCommand": "npm install @vitejs/plugin-react vite typescript && npx vite build --config vite.config.ts",
+  "outputDirectory": "dist",
+  "installCommand": "npm install @vitejs/plugin-react vite tailwindcss postcss autoprefixer @types/react @types/react-dom typescript",
+  "env": {
+    "VITE_API_BASE_URL": "https://project-1-yxba.onrender.com"
+    
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

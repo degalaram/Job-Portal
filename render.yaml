@@ -1,0 +1,21 @@
+
+services:
+  - type: web
+    name: jobportal-backend
+    env: node
+    buildCommand: |
+      echo "Setting up backend-only deployment..."
+      cp package.render.json package.json
+      npm install --no-audit --no-fund
+      echo "Backend deployment ready"
+    startCommand: node server/render-production.js
+    plan: free
+    region: oregon
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
