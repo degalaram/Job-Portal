@@ -379,6 +379,12 @@ export default function Jobs() {
 
         console.log(`[JOB DELETE] Response status: ${response.status}`);
 
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[JOB DELETE] API Error: ${response.status} - ${errorText}`);
+          throw new Error(`Delete failed: ${errorText || 'Unknown error'}`);
+        }
+
         const result = await response.json();
         console.log('[JOB DELETE] Success response:', result);
         return result;
@@ -389,7 +395,7 @@ export default function Jobs() {
     },
     onSuccess: (result) => {
       console.log('[JOB DELETE] Delete successful:', result);
-      
+
       // Update the UI by invalidating queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
@@ -418,20 +424,20 @@ export default function Jobs() {
   const restoreJobMutation = useMutation({
     mutationFn: async ({ deletedPostId }: { deletedPostId: string }) => {
       console.log(`[JOB RESTORE] Restoring deleted post ${deletedPostId}`);
-      
+
       const response = await apiRequest('POST', `/api/deleted-posts/${deletedPostId}/restore`, {});
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[JOB RESTORE] API Error: ${response.status} - ${errorText}`);
         throw new Error(`Restore failed: ${errorText || 'Unknown error'}`);
       }
-      
+
       return response.json();
     },
     onSuccess: (result) => {
       console.log('[JOB RESTORE] Restore successful:', result);
-      
+
       // Update the UI by invalidating queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
@@ -480,7 +486,7 @@ export default function Jobs() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">Failed to connect to the server. Please try again later.</p>
-            <button 
+            <button
               onClick={() => refetch()}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
               data-testid="button-retry"
@@ -494,24 +500,7 @@ export default function Jobs() {
   }
 
   const filteredJobs = (() => {
-    if (activeTab === 'deleted') {
-      // For deleted tab, use deletedPosts instead of allJobs
-      return Array.isArray(deletedPosts) ? deletedPosts.filter((deletedPost: any) => {
-        const job = deletedPost.job || deletedPost;
-        
-        const matchesSearch = searchTerm === '' ||
-          (job.title && job.title.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (job.company && job.company.name && job.company.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (job.skills && job.skills.toLowerCase().includes(searchTerm.toLowerCase()));
-
-        const matchesLocation = locationFilter === '' ||
-          (job.location && job.location.toLowerCase().includes(locationFilter.toLowerCase()));
-
-        return matchesSearch && matchesLocation;
-      }) : [];
-    }
-    
-    // For other tabs, use regular allJobs filtering
+    // Filter regular jobs only
     return Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
       const matchesSearch = searchTerm === '' ||
         job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -671,8 +660,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('all')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'all' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'all'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-all-jobs"
@@ -682,8 +671,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('fresher')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'fresher' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'fresher'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-fresher-jobs"
@@ -693,8 +682,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('experienced')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'experienced' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'experienced'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-experienced-jobs"
@@ -704,8 +693,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('expired')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'expired' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'expired'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-expired-jobs"
@@ -718,8 +707,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('deleted')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'deleted' 
-                    ? 'bg-red-600 text-white shadow' 
+                  activeTab === 'deleted'
+                    ? 'bg-red-600 text-white shadow'
                     : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
                 }`}
                 data-testid="tab-deleted-jobs"
@@ -744,7 +733,7 @@ export default function Jobs() {
 
           <TabsContent value={activeTab}>
             <div className="space-y-3 sm:space-y-4 md:space-y-6">
-              {filteredJobs.length === 0 ? (
+              {filteredJobs.length === 0 && activeTab !== 'deleted' ? (
                 <Card>
                   <CardContent className="p-8 text-center">
                     <div className="text-gray-400 mb-4">
@@ -758,19 +747,43 @@ export default function Jobs() {
                     </p>
                   </CardContent>
                 </Card>
+              ) : activeTab === 'deleted' && deletedPosts.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <div className="text-gray-400 mb-4">
+                      <Trash2 className="w-12 h-12 mx-auto" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No deleted jobs</h3>
+                    <p className="text-gray-600">
+                      You have not deleted any jobs.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : filteredJobs.length === 0 ? ( // This case handles when filteredJobs is empty for non-deleted tabs
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <div className="text-gray-400 mb-4">
+                      <Users className="w-12 h-12 mx-auto" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No jobs found</h3>
+                    <p className="text-gray-600">
+                      Try adjusting your search criteria or check back later for new opportunities.
+                    </p>
+                  </CardContent>
+                </Card>
               ) : (
-                filteredJobs.map((item: any) => {
+                (activeTab === 'deleted' ? deletedPosts : filteredJobs).map((item: any) => {
                   // Handle both regular jobs and deleted posts
                   const isDeleted = activeTab === 'deleted';
                   const job = isDeleted ? item.job : item;
                   const deletedPostId = isDeleted ? item.id : null;
-                  
+
                   // Ensure we have a valid job object
                   if (!job || !job.id) {
                     console.warn('Invalid job object:', item);
                     return null;
                   }
-                  
+
                   const isApplied = appliedJobs.includes(job.id);
                   const isExpired = job.closingDate ? new Date(job.closingDate) < new Date() : false;
 
