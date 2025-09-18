@@ -248,40 +248,48 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
         logo: logoUrl
       };
       
-      console.log('Updating company with data:', updatedData);
-      console.log('Generated logo URL:', logoUrl);
+      console.log('[COMPANY UPDATE] Updating company with data:', updatedData);
+      console.log('[COMPANY UPDATE] Generated logo URL:', logoUrl);
+      
       const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
       
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('[COMPANY UPDATE] API Error:', errorText);
         throw new Error(`Failed to update company: ${errorText}`);
       }
       
-      return response.json();
+      const result = await response.json();
+      console.log('[COMPANY UPDATE] API Response:', result);
+      return result;
     },
     onSuccess: (result) => {
-      console.log('Company update successful:', result);
+      console.log('[COMPANY UPDATE] Update successful:', result);
       
-      // Handle both old and new response formats
-      const updatedCompany = result.company || result;
+      // The result should be the updated company directly
+      const updatedCompany = result;
       
-      // Update the cache with the returned data
+      // Update the cache immediately with the new data
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
-        return (oldData || []).map((c: Company) => 
-          c.id === company.id ? updatedCompany : c
+        const updated = (oldData || []).map((c: Company) => 
+          c.id === company.id ? { ...c, ...updatedCompany } : c
         );
+        console.log('[COMPANY UPDATE] Cache updated:', updated);
+        return updated;
       });
+      
+      // Also invalidate to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
       
       toast({
         title: 'Company updated successfully',
-        description: `${updatedCompany.name} has been updated successfully.`,
+        description: `${updatedCompany.name} has been updated with new details and logo.`,
       });
       
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
       setOpen(false);
     },
     onError: (error: any) => {
-      console.error('Company update error:', error);
+      console.error('[COMPANY UPDATE] Error:', error);
       toast({
         title: 'Failed to update company',
         description: error.message || 'An error occurred while updating the company.',
