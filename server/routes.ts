@@ -261,7 +261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       if (existingDeletedPost) {
         console.log(`[JOB DELETE] Job already deleted by user`);
-        return res.json({ message: 'Job already deleted', deletedPost: existingDeletedPost });
+        return res.status(200).json({ message: 'Job already deleted', deletedPost: existingDeletedPost });
       }
 
       // Create application if not exists (to track the delete action)
@@ -270,17 +270,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let applicationId = null;
       if (!existingApplication) {
-        const newApplication = {
-          id: nanoid(),
-          userId,
-          jobId,
-          status: 'applied' as const,
-          appliedAt: new Date().toISOString(),
-          coverLetter: 'Applied before deletion'
-        };
-        await storage.createApplication(newApplication);
-        applicationId = newApplication.id;
-        console.log(`[JOB DELETE] Created application for user ${userId} and job ${jobId}`);
+        try {
+          const newApplication = {
+            id: nanoid(),
+            userId,
+            jobId,
+            status: 'applied' as const,
+            appliedAt: new Date().toISOString(),
+            coverLetter: 'Applied before deletion'
+          };
+          await storage.createApplication(newApplication);
+          applicationId = newApplication.id;
+          console.log(`[JOB DELETE] Created application for user ${userId} and job ${jobId}`);
+        } catch (appError) {
+          console.log(`[JOB DELETE] Failed to create application, continuing without: ${appError}`);
+        }
       } else {
         applicationId = existingApplication.id;
         console.log(`[JOB DELETE] Using existing application: ${applicationId}`);
@@ -310,7 +314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
       console.log(`[JOB DELETE] Successfully created deleted post with ID: ${savedDeletedPost.id}`);
 
-      res.json({ 
+      res.status(200).json({ 
         message: 'Job deleted successfully',
         deletedPost: savedDeletedPost
       });
@@ -318,8 +322,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('[JOB DELETE] Error deleting job:', error);
       res.status(500).json({ 
         error: 'Failed to delete job', 
-        details: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });
