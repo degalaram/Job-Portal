@@ -86,6 +86,13 @@ function EditCourseDialog({ course, children }: { course: any; children: React.R
       // Handle both old and new response formats
       const updatedCourse = result.course || result;
       
+      // Update the cache with the returned data
+      queryClient.setQueryData(['courses'], (oldData: any[]) => {
+        return (oldData || []).map((c: any) => 
+          c.id === course.id ? updatedCourse : c
+        );
+      });
+      
       toast({
         title: 'Course updated successfully',
         description: 'The course details have been updated.',
