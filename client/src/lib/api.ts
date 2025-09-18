@@ -59,22 +59,17 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
     if (!response.ok) {
       console.error(`API Error: ${method} ${url} - ${response.status}`);
-      // Clone response to avoid "body stream already read" error
-      const responseClone = response.clone();
       let errorMessage = `HTTP error! status: ${response.status}`;
       
       try {
+        // Try to read as JSON first
         const errorData = await response.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
         console.error('Error data:', errorData);
       } catch (jsonError) {
-        try {
-          const errorText = await responseClone.text();
-          errorMessage = errorText || errorMessage;
-          console.error('Error text:', errorText);
-        } catch (textError) {
-          console.error('Could not read error response:', textError);
-        }
+        console.error('Could not parse error response as JSON:', jsonError);
+        // If JSON parsing fails, the response body is already consumed
+        // Don't try to read it again as text
       }
       
       throw new Error(errorMessage);
