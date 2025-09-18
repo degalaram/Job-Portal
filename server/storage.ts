@@ -1143,13 +1143,13 @@ export class MemStorage implements IStorage {
 
 
   // Deleted Posts methods
-  async addDeletedPost(deletedPost: any): Promise<any> {
+  async addDeletedPost(post: any): Promise<any> {
     if (!this.deletedPosts) {
       this.deletedPosts = new Map<string, any>();
     }
-    this.deletedPosts.set(deletedPost.id, deletedPost);
-    console.log(`Added deleted post: ${deletedPost.id} for user: ${deletedPost.userId}`);
-    return deletedPost;
+    this.deletedPosts.set(post.id, post);
+    console.log(`Added deleted post: ${post.id} for user: ${post.userId}`);
+    return post;
   }
 
   async getUserDeletedPosts(userId: string): Promise<any[]> {
