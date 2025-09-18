@@ -233,19 +233,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.headers['user-id'] as string;
 
       console.log(`[JOB DELETE] Attempting to soft delete job ${jobId} for user ${userId}`);
+      console.log(`[JOB DELETE] Request headers:`, req.headers);
+      console.log(`[JOB DELETE] Request body:`, req.body);
 
       if (!userId) {
         console.log('[JOB DELETE] User ID missing');
         return res.status(400).json({ error: 'User ID required' });
       }
 
+      if (!jobId) {
+        console.log('[JOB DELETE] Job ID missing');
+        return res.status(400).json({ error: 'Job ID required' });
+      }
+
       // Find the job with company data
-      const job = await storage.getJobById(jobId);
+      const job = await storage.getJob(jobId);
       if (!job) {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({ error: 'Job not found' });
       }
-      console.log(`[JOB DELETE] Job found:`, job);
+      console.log(`[JOB DELETE] Job found:`, { id: job.id, title: job.title, company: job.company.name });
 
       // Check if already deleted by this user
       const userDeletedPosts = await storage.getUserDeletedPosts(userId);
@@ -254,7 +261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       if (existingDeletedPost) {
         console.log(`[JOB DELETE] Job already deleted by user`);
-        return res.json({ message: 'Job already deleted' });
+        return res.json({ message: 'Job already deleted', deletedPost: existingDeletedPost });
       }
 
       // Create application if not exists (to track the delete action)
@@ -289,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: 'job' as const,
         title: job.title,
         description: job.description,
-        company: job.company || { name: 'Unknown Company', location: job.location },
+        company: job.company,
         location: job.location,
         salary: job.salary,
         experience: job.experienceLevel,
@@ -301,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const savedDeletedPost = await storage.addDeletedPost(deletedPost);
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
-      console.log(`[JOB DELETE] Successfully created deleted post:`, savedDeletedPost);
+      console.log(`[JOB DELETE] Successfully created deleted post with ID: ${savedDeletedPost.id}`);
 
       res.json({ 
         message: 'Job deleted successfully',
@@ -309,7 +316,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('[JOB DELETE] Error deleting job:', error);
-      res.status(500).json({ error: 'Failed to delete job', details: error instanceof Error ? error.message : 'Unknown error' });
+      res.status(500).json({ 
+        error: 'Failed to delete job', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   });
 
