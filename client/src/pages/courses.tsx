@@ -72,6 +72,7 @@ function EditCourseDialog({ course, children }: { course: any; children: React.R
 
   const updateCourseMutation = useMutation({
     mutationFn: async (data: any) => {
+      console.log('Updating course with data:', data);
       const response = await apiRequest('PUT', `/api/courses/${course.id}`, data);
       if (!response.ok) {
         const errorText = await response.text();
@@ -79,7 +80,12 @@ function EditCourseDialog({ course, children }: { course: any; children: React.R
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      console.log('Course update successful:', result);
+      
+      // Handle both old and new response formats
+      const updatedCourse = result.course || result;
+      
       toast({
         title: 'Course updated successfully',
         description: 'The course details have been updated.',
