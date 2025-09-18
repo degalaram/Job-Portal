@@ -48,26 +48,44 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
     options.body = JSON.stringify(data);
   }
 
-  console.log(`API Request: ${method} ${url}`);
-  
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    console.error(`API Error: ${method} ${url} - ${response.status}`);
-    // Clone response to avoid "body stream already read" error
-    const responseClone = response.clone();
-    try {
-      const errorData = await response.json();
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    } catch {
-      try {
-        const errorText = await responseClone.text();
-        throw new Error(errorText || `HTTP error! status: ${response.status}`);
-      } catch {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-    }
+  console.log(`API Request: ${method} ${url}`, data ? 'with data' : 'without data');
+  if (customHeaders) {
+    console.log('Custom headers:', customHeaders);
   }
+  
+  try {
+    const response = await fetch(url, options);
+    console.log(`API Response: ${method} ${url} - Status: ${response.status}`);
 
-  return response;
+    if (!response.ok) {
+      console.error(`API Error: ${method} ${url} - ${response.status}`);
+      // Clone response to avoid "body stream already read" error
+      const responseClone = response.clone();
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.error || errorMessage;
+        console.error('Error data:', errorData);
+      } catch (jsonError) {
+        try {
+          const errorText = await responseClone.text();
+          errorMessage = errorText || errorMessage;
+          console.error('Error text:', errorText);
+        } catch (textError) {
+          console.error('Could not read error response:', textError);
+        }
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    return response;
+  } catch (error) {
+    console.error(`Network error for ${method} ${url}:`, error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Network request failed');
+  }
 }
