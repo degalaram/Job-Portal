@@ -230,14 +230,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/jobs/:jobId/delete', async (req, res) => {
     try {
       const { jobId } = req.params;
-      const userId = req.headers['user-id'] as string;
+      // Try to get userId from both header and body for better compatibility
+      const userId = req.headers['user-id'] as string || req.body?.userId;
 
       console.log(`[JOB DELETE] Attempting to soft delete job ${jobId} for user ${userId}`);
 
       if (!userId) {
-        console.log('[JOB DELETE] User ID missing');
+        console.log('[JOB DELETE] User ID missing from both header and body');
         return res.status(400).json({ 
-          error: 'User ID required',
+          error: 'User ID required in header or body',
           success: false 
         });
       }
