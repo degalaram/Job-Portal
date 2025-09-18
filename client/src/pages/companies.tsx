@@ -252,6 +252,11 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
       console.log('Generated logo URL:', logoUrl);
       const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
       
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update company: ${errorText}`);
+      }
+      
       return response.json();
     },
     onSuccess: (result) => {
