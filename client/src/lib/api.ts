@@ -62,14 +62,23 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
       let errorMessage = `HTTP error! status: ${response.status}`;
       
       try {
-        // Try to read as JSON first
-        const errorData = await response.json();
+        // Clone the response to avoid consuming the stream
+        const responseClone = response.clone();
+        const errorData = await responseClone.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
         console.error('Error data:', errorData);
       } catch (jsonError) {
         console.error('Could not parse error response as JSON:', jsonError);
-        // If JSON parsing fails, the response body is already consumed
-        // Don't try to read it again as text
+        try {
+          // Try to read as text from the original response
+          const errorText = await response.text();
+          if (errorText) {
+            errorMessage = errorText;
+          }
+        } catch (textError) {
+          console.error('Could not read error response as text:', textError);
+          // Use the default error message
+        }
       }
       
       throw new Error(errorMessage);
