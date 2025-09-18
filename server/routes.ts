@@ -233,96 +233,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.headers['user-id'] as string;
 
       console.log(`[JOB DELETE] Attempting to soft delete job ${jobId} for user ${userId}`);
-      console.log(`[JOB DELETE] Request headers:`, req.headers);
-      console.log(`[JOB DELETE] Request body:`, req.body);
 
       if (!userId) {
         console.log('[JOB DELETE] User ID missing');
-        return res.status(400).json({ error: 'User ID required' });
+        return res.status(400).json({ 
+          error: 'User ID required',
+          success: false 
+        });
       }
 
       if (!jobId) {
         console.log('[JOB DELETE] Job ID missing');
-        return res.status(400).json({ error: 'Job ID required' });
+        return res.status(400).json({ 
+          error: 'Job ID required',
+          success: false 
+        });
       }
 
       // Find the job with company data
       const job = await storage.getJob(jobId);
       if (!job) {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
-        return res.status(404).json({ error: 'Job not found' });
+        return res.status(404).json({ 
+          error: 'Job not found',
+          success: false 
+        });
       }
       console.log(`[JOB DELETE] Job found:`, { id: job.id, title: job.title, company: job.company.name });
 
       // Check if already deleted by this user
       const userDeletedPosts = await storage.getUserDeletedPosts(userId);
       const existingDeletedPost = userDeletedPosts.find(dp => 
-        (dp.originalId === jobId || dp.jobId === jobId) && dp.type === 'job'
+        (dp.originalId === jobId || dp.jobId === jobId)
       );
       if (existingDeletedPost) {
         console.log(`[JOB DELETE] Job already deleted by user`);
-        return res.status(200).json({ message: 'Job already deleted', deletedPost: existingDeletedPost });
+        return res.status(200).json({ 
+          message: 'Job already deleted', 
+          deletedPost: existingDeletedPost,
+          success: true 
+        });
       }
 
-      // Create application if not exists (to track the delete action)
-      const userApplications = await storage.getUserApplications(userId);
-      const existingApplication = userApplications.find(app => app.job.id === jobId);
-
-      let applicationId = null;
-      if (!existingApplication) {
-        try {
-          const newApplication = {
-            id: nanoid(),
-            userId,
-            jobId,
-            status: 'applied' as const,
-            appliedAt: new Date().toISOString(),
-            coverLetter: 'Applied before deletion'
-          };
-          await storage.createApplication(newApplication);
-          applicationId = newApplication.id;
-          console.log(`[JOB DELETE] Created application for user ${userId} and job ${jobId}`);
-        } catch (appError) {
-          console.log(`[JOB DELETE] Failed to create application, continuing without: ${appError}`);
-        }
-      } else {
-        applicationId = existingApplication.id;
-        console.log(`[JOB DELETE] Using existing application: ${applicationId}`);
-      }
-
-      // Add to deleted posts with complete job and company data
-      const deletedPost = {
-        id: nanoid(),
-        userId,
-        originalId: jobId,
-        jobId: jobId,
-        applicationId: applicationId,
-        type: 'job' as const,
-        title: job.title,
-        description: job.description,
-        company: job.company,
-        location: job.location,
-        salary: job.salary,
-        experience: job.experienceLevel,
-        skills: job.skills,
-        deletedAt: new Date().toISOString(),
-        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-        job: job // Include complete job data for frontend compatibility
-      };
-
-      const savedDeletedPost = await storage.addDeletedPost(deletedPost);
+      // Use the soft delete functionality from storage
+      const deletedPost = await storage.softDeleteJob(jobId, userId);
+      
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
-      console.log(`[JOB DELETE] Successfully created deleted post with ID: ${savedDeletedPost.id}`);
+      console.log(`[JOB DELETE] Successfully created deleted post with ID: ${deletedPost.id}`);
 
       res.status(200).json({ 
         message: 'Job deleted successfully',
-        deletedPost: savedDeletedPost
+        deletedPost: deletedPost,
+        success: true
       });
     } catch (error) {
       console.error('[JOB DELETE] Error deleting job:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
       res.status(500).json({ 
         error: 'Failed to delete job', 
-        details: error instanceof Error ? error.message : 'Unknown error'
+        message: errorMessage,
+        success: false
       });
     }
   });
