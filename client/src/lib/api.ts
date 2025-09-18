@@ -5,12 +5,14 @@ const getApiUrl = () => {
     return import.meta.env.VITE_API_BASE_URL;
   }
 
-  // PRIORITY 2: For Replit development environment
+  // PRIORITY 2: For Replit production/development environment
   if (window.location.hostname.includes('replit.dev') || 
       window.location.hostname.includes('repl.co') || 
-      window.location.hostname.includes('replit.app')) {
-    const apiUrl = `${window.location.protocol}//${window.location.hostname}`;
-    console.log('Using Replit API URL:', apiUrl);
+      window.location.hostname.includes('replit.app') ||
+      window.location.hostname.includes('pike.replit.dev') ||
+      window.location.hostname.includes('projectnow.pages.dev')) {
+    const apiUrl = window.location.origin;
+    console.log('Using Replit/Pages API URL:', apiUrl);
     return apiUrl;
   }
 
@@ -21,15 +23,9 @@ const getApiUrl = () => {
   }
 
   // PRIORITY 4: For same domain deployments (most production cases)
-  if (window.location.hostname !== 'localhost') {
-    const sameOriginUrl = window.location.origin;
-    console.log('Using same origin API URL:', sameOriginUrl);
-    return sameOriginUrl;
-  }
-
-  // PRIORITY 5: Fallback
-  console.log('Using fallback API URL');
-  return "";
+  const sameOriginUrl = window.location.origin;
+  console.log('Using same origin API URL:', sameOriginUrl);
+  return sameOriginUrl;
 };
 
 const API_URL = getApiUrl();
