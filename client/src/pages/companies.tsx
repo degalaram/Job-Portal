@@ -251,17 +251,31 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
       console.log('[COMPANY UPDATE] Updating company with data:', updatedData);
       console.log('[COMPANY UPDATE] Generated logo URL:', logoUrl);
       
-      const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[COMPANY UPDATE] API Error:', errorText);
-        throw new Error(`Failed to update company: ${errorText}`);
+      try {
+        const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
+        
+        if (!response.ok) {
+          let errorMessage = 'Failed to update company';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } catch {
+            const errorText = await response.text();
+            errorMessage = errorText || errorMessage;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const result = await response.json();
+        console.log('[COMPANY UPDATE] API Response:', result);
+        return result;
+      } catch (error) {
+        console.error('[COMPANY UPDATE] Request Error:', error);
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error('Network error occurred while updating company');
       }
-      
-      const result = await response.json();
-      console.log('[COMPANY UPDATE] API Response:', result);
-      return result;
     },
     onSuccess: (result) => {
       console.log('[COMPANY UPDATE] Update successful:', result);
