@@ -75,37 +75,34 @@ class ErrorBoundary extends Component<
 }
 
 function Router() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
 
-  // Handle client-side routing for deployment and prevent white page on refresh
+  // Handle authentication and routing properly
   useEffect(() => {
     console.log('🛣️ Current location:', location);
     console.log('🛣️ Window pathname:', window.location.pathname);
     
-    // Handle refresh scenarios - redirect to jobs for authenticated users
-    const handlePageRefresh = () => {
-      const userString = localStorage.getItem('user');
-      const isLoggedIn = userString && userString !== 'null' && userString !== 'undefined';
-      
-      // If user is logged in and on root, redirect to jobs
-      if (isLoggedIn && (location === "/" || window.location.pathname === "/")) {
-        console.log('🛣️ Redirecting authenticated user to /jobs');
-        window.history.replaceState({}, "", "/jobs");
-        window.location.reload();
+    const userString = localStorage.getItem('user');
+    const isLoggedIn = userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '';
+    
+    console.log('🔐 User logged in:', isLoggedIn);
+    console.log('🔐 User data:', userString);
+
+    // For production deployment - always show login first for unauthenticated users
+    if (!isLoggedIn) {
+      // If user is not logged in and not on login/signup pages, redirect to login
+      if (location !== '/login' && location !== '/signup') {
+        console.log('🛣️ Redirecting unauthenticated user to /login');
+        navigate('/login');
       }
-    };
-    
-    // Check on mount and location changes
-    handlePageRefresh();
-    
-    // Also handle browser back/forward navigation
-    const handlePopState = () => {
-      setTimeout(handlePageRefresh, 100);
-    };
-    
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [location]);
+    } else {
+      // If user is logged in and on root or login page, redirect to jobs
+      if (location === '/' || location === '/login') {
+        console.log('🛣️ Redirecting authenticated user to /jobs');
+        navigate('/jobs');
+      }
+    }
+  }, [location, navigate]);
 
   return (
     <Switch>
