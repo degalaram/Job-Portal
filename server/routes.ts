@@ -232,29 +232,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { jobId } = req.params;
       const userId = req.headers['user-id'] as string;
 
+      console.log(`[JOB DELETE] Attempting to soft delete job ${jobId} for user ${userId}`);
+
       if (!userId) {
+        console.log('[JOB DELETE] User ID missing');
         return res.status(400).json({ error: 'User ID required' });
       }
 
-      console.log(`Attempting to soft delete job ${jobId} for user ${userId}`);
-
-      // Find the job
-      const job = await storage.getJobById(jobId); // Use storage.getJobById to fetch job details
+      // Find the job with company data
+      const job = await storage.getJobById(jobId);
       if (!job) {
+        console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({ error: 'Job not found' });
       }
+      console.log(`[JOB DELETE] Job found:`, job);
 
-      // Check if already deleted by this user - use proper Map access for MemStorage
+      // Check if already deleted by this user
       const userDeletedPosts = await storage.getUserDeletedPosts(userId);
-      const existingDeletedPost = userDeletedPosts.find(dp => dp.originalId === jobId && dp.type === 'job');
+      const existingDeletedPost = userDeletedPosts.find(dp => 
+        (dp.originalId === jobId || dp.jobId === jobId) && dp.type === 'job'
+      );
       if (existingDeletedPost) {
+        console.log(`[JOB DELETE] Job already deleted by user`);
         return res.json({ message: 'Job already deleted' });
       }
 
       // Create application if not exists (to track the delete action)
-      const existingApplication = await storage.getUserApplications(userId).then(apps => 
-        apps.find(app => app.job.id === jobId)
-      );
+      const userApplications = await storage.getUserApplications(userId);
+      const existingApplication = userApplications.find(app => app.job.id === jobId);
 
       let applicationId = null;
       if (!existingApplication) {
@@ -268,12 +273,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         await storage.createApplication(newApplication);
         applicationId = newApplication.id;
-        console.log(`Created application for user ${userId} and job ${jobId}`);
+        console.log(`[JOB DELETE] Created application for user ${userId} and job ${jobId}`);
       } else {
         applicationId = existingApplication.id;
+        console.log(`[JOB DELETE] Using existing application: ${applicationId}`);
       }
 
-      // Add to deleted posts
+      // Add to deleted posts with complete job and company data
       const deletedPost = {
         id: nanoid(),
         userId,
@@ -283,23 +289,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: 'job' as const,
         title: job.title,
         description: job.description,
-        company: { name: 'Unknown Company' }, // Will be populated when company data is available
+        company: job.company || { name: 'Unknown Company', location: job.location },
         location: job.location,
         salary: job.salary,
         experience: job.experienceLevel,
         skills: job.skills,
         deletedAt: new Date().toISOString(),
-        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString() // 5 days from now
+        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+        job: job // Include complete job data for frontend compatibility
       };
 
-      await storage.addDeletedPost(deletedPost);
-      console.log(`Job ${jobId} soft deleted for user ${userId}`);
-      console.log(`Successfully created deleted post: ${deletedPost.id}`);
+      const savedDeletedPost = await storage.addDeletedPost(deletedPost);
+      console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
+      console.log(`[JOB DELETE] Successfully created deleted post:`, savedDeletedPost);
 
-      res.json({ message: 'Job deleted successfully' });
+      res.json({ 
+        message: 'Job deleted successfully',
+        deletedPost: savedDeletedPost
+      });
     } catch (error) {
-      console.error('Error deleting job:', error);
-      res.status(500).json({ error: 'Failed to delete job' });
+      console.error('[JOB DELETE] Error deleting job:', error);
+      res.status(500).json({ error: 'Failed to delete job', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -602,31 +612,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/companies/:id", async (req, res) => {
     try {
       const companyId = req.params.id;
-      console.log(`Updating company with ID: ${companyId}`, req.body);
+      console.log(`[COMPANY UPDATE] Updating company with ID: ${companyId}`, req.body);
 
       // Validate the data
       const validatedData = insertCompanySchema.parse(req.body);
+      console.log(`[COMPANY UPDATE] Validated data:`, validatedData);
 
       // Check if company exists first
       const existingCompany = await storage.getCompany(companyId);
       if (!existingCompany) {
-        console.log(`Company not found for update: ${companyId}`);
+        console.log(`[COMPANY UPDATE] Company not found for update: ${companyId}`);
         return res.status(404).json({ message: "Company not found" });
       }
+      console.log(`[COMPANY UPDATE] Existing company found:`, existingCompany);
 
       const updatedCompany = await storage.updateCompany(companyId, validatedData);
 
       if (!updatedCompany) {
-        console.log(`Failed to update company: ${companyId}`);
+        console.log(`[COMPANY UPDATE] Failed to update company: ${companyId}`);
         return res.status(500).json({ message: "Failed to update company" });
       }
 
-      console.log(`Company updated successfully: ${companyId}`);
+      console.log(`[COMPANY UPDATE] Company updated successfully:`, updatedCompany);
       
-      // Return the updated company directly
+      // Ensure we return the correct format
       res.json(updatedCompany);
     } catch (error) {
-      console.error("Error updating company:", error);
+      console.error("[COMPANY UPDATE] Error updating company:", error);
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
       } else {
