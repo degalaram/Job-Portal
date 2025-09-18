@@ -257,16 +257,19 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
     onSuccess: (result) => {
       console.log('Company update successful:', result);
       
+      // Handle both old and new response formats
+      const updatedCompany = result.company || result;
+      
       // Update the cache with the returned data
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
         return (oldData || []).map((c: Company) => 
-          c.id === company.id ? result : c
+          c.id === company.id ? updatedCompany : c
         );
       });
       
       toast({
         title: 'Company updated successfully',
-        description: `${result.name} has been updated successfully.`,
+        description: `${updatedCompany.name} has been updated successfully.`,
       });
       
       queryClient.invalidateQueries({ queryKey: ['companies'] });
