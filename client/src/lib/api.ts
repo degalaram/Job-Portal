@@ -58,13 +58,18 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
   if (!response.ok) {
     console.error(`API Error: ${method} ${url} - ${response.status}`);
-    // Safe error handling - try JSON first, fallback to text
+    // Clone response to avoid "body stream already read" error
+    const responseClone = response.clone();
     try {
       const errorData = await response.json();
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     } catch {
-      const errorText = await response.text();
-      throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      try {
+        const errorText = await responseClone.text();
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      } catch {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
     }
   }
 
