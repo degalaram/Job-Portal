@@ -1181,20 +1181,64 @@ export class MemStorage implements IStorage {
       throw new Error('Job not found');
     }
 
+    // Check if already deleted by this user
+    const existingDeleted = Array.from(this.deletedPosts.values()).find(
+      post => post.userId === userId && (post.jobId === jobId || post.originalId === jobId)
+    );
+    
+    if (existingDeleted) {
+      console.log(`Job ${jobId} already deleted for user ${userId}`);
+      return existingDeleted;
+    }
+
+    // Create application if not exists (to track the delete action)
+    const userApplications = await this.getUserApplications(userId);
+    const existingApplication = userApplications.find(app => app.job.id === jobId);
+
+    let applicationId = null;
+    if (!existingApplication) {
+      try {
+        const newApplication = {
+          id: randomUUID(),
+          userId,
+          jobId,
+          status: 'applied' as const,
+          appliedAt: new Date(),
+        };
+        await this.createApplication(newApplication);
+        applicationId = newApplication.id;
+        console.log(`Created application for user ${userId} and job ${jobId}`);
+      } catch (appError) {
+        console.log(`Failed to create application, continuing without: ${appError}`);
+      }
+    } else {
+      applicationId = existingApplication.id;
+      console.log(`Using existing application: ${applicationId}`);
+    }
+
     // Create deleted post entry with complete job and company data
     const deletedPost = {
       id: randomUUID(),
       userId: userId,
+      originalId: jobId,
       jobId: jobId,
-      applicationId: null, // Will be filled when application is created
-      job: jobWithCompany, // This includes company data
+      applicationId: applicationId,
+      type: 'job' as const,
+      title: jobWithCompany.title,
+      description: jobWithCompany.description,
+      company: jobWithCompany.company,
+      location: jobWithCompany.location,
+      salary: jobWithCompany.salary,
+      experience: jobWithCompany.experienceLevel,
+      skills: jobWithCompany.skills,
       deletedAt: new Date(),
+      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      job: jobWithCompany // Include complete job data for frontend compatibility
     };
 
     this.deletedPosts.set(deletedPost.id, deletedPost);
 
-    // Don't actually remove the job from jobs list, just mark it in deleted posts
-    console.log(`Job ${jobId} soft deleted for user ${userId}`);
+    console.log(`Job ${jobId} soft deleted for user ${userId} with deleted post ID: ${deletedPost.id}`);
 
     return deletedPost;
   }
