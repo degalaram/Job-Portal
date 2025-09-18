@@ -539,15 +539,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`Course updated successfully: ${courseId}`);
       
-      // Return the complete updated course data
-      res.json({
-        success: true,
-        message: "Course updated successfully", 
-        course: updatedCourse
-      });
+      // Return the updated course directly
+      res.json(updatedCourse);
     } catch (error) {
       console.error("Error updating course:", error);
-      res.status(500).json({ success: false, message: "Failed to update course" });
+      res.status(500).json({ message: "Failed to update course" });
     }
   });
 
@@ -627,18 +623,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`Company updated successfully: ${companyId}`);
       
-      // Return the complete updated company data
-      res.json({
-        success: true,
-        message: "Company updated successfully",
-        company: updatedCompany
-      });
+      // Return the updated company directly
+      res.json(updatedCompany);
     } catch (error) {
       console.error("Error updating company:", error);
       if (error instanceof Error) {
-        res.status(400).json({ success: false, message: error.message });
+        res.status(400).json({ message: error.message });
       } else {
-        res.status(500).json({ success: false, message: "Failed to update company" });
+        res.status(500).json({ message: "Failed to update company" });
       }
     }
   });
