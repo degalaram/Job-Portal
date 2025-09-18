@@ -233,13 +233,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try to get userId from both header and body for better compatibility
       const userId = req.headers['user-id'] as string || req.body?.userId;
 
-      console.log(`[JOB DELETE] Attempting to soft delete job ${jobId} for user ${userId}`);
+      console.log(`[JOB DELETE] ${new Date().toISOString()} - Attempting to soft delete job ${jobId} for user ${userId}`);
 
       if (!userId) {
         console.log('[JOB DELETE] User ID missing from both header and body');
         return res.status(400).json({ 
           error: 'User ID required in header or body',
-          success: false 
+          success: false,
+          timestamp: new Date().toISOString()
         });
       }
 
@@ -247,7 +248,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('[JOB DELETE] Job ID missing');
         return res.status(400).json({ 
           error: 'Job ID required',
-          success: false 
+          success: false,
+          timestamp: new Date().toISOString()
         });
       }
 
@@ -257,7 +259,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({ 
           error: 'Job not found',
-          success: false 
+          success: false,
+          timestamp: new Date().toISOString()
         });
       }
       console.log(`[JOB DELETE] Job found:`, { id: job.id, title: job.title, company: job.company.name });
@@ -272,7 +275,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json({ 
           message: 'Job already deleted', 
           deletedPost: existingDeletedPost,
-          success: true 
+          success: true,
+          timestamp: new Date().toISOString()
         });
       }
 
@@ -282,20 +286,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
       console.log(`[JOB DELETE] Successfully created deleted post with ID: ${deletedPost.id}`);
 
+      // Set proper headers for JSON response
+      res.setHeader('Content-Type', 'application/json');
       res.status(200).json({ 
         message: 'Job deleted successfully',
         deletedPost: deletedPost,
-        success: true
+        success: true,
+        timestamp: new Date().toISOString()
       });
     } catch (error) {
       console.error('[JOB DELETE] Error deleting job:', error);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       
+      // Set proper headers for error response
+      res.setHeader('Content-Type', 'application/json');
       res.status(500).json({ 
         error: 'Failed to delete job', 
         message: errorMessage,
-        success: false
+        success: false,
+        timestamp: new Date().toISOString()
       });
     }
   });
