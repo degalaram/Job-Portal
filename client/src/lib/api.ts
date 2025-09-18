@@ -20,16 +20,16 @@ const getApiUrl = () => {
     return "http://localhost:5000";
   }
 
-  // PRIORITY 4: For Cloudflare Workers/Pages - use Render backend directly
-  if (window.location.hostname.includes('workers.dev') || 
-      window.location.hostname.includes('pages.dev')) {
-    console.log('Cloudflare deployment detected, using Render backend: https://projectnow.onrender.com');
-    return "https://projectnow.onrender.com";
+  // PRIORITY 4: For same domain deployments (most production cases)
+  if (window.location.hostname !== 'localhost') {
+    const sameOriginUrl = window.location.origin;
+    console.log('Using same origin API URL:', sameOriginUrl);
+    return sameOriginUrl;
   }
 
-  // PRIORITY 5: For ALL other production deployments - use Render backend
-  console.log('Using default Render backend: https://projectnow.onrender.com');
-  return "https://projectnow.onrender.com";
+  // PRIORITY 5: Fallback
+  console.log('Using fallback API URL');
+  return "";
 };
 
 const API_URL = getApiUrl();
