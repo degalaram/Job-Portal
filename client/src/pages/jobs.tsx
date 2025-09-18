@@ -346,32 +346,45 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
+      console.log(`[JOB DELETE] Deleting job ${jobId} for user ${userId}`);
+
       // Use the correct delete endpoint and send user-id in headers as expected by backend
       const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
 
+      console.log(`[JOB DELETE] Response status: ${response.status}`);
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('[JOB DELETE] Error response:', errorText);
+        
         let errorMessage = 'Failed to delete job';
-
         try {
           const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
+          errorMessage = errorData.error || errorData.message || errorMessage;
         } catch {
-          console.error('Server returned non-JSON response:', errorText);
-          errorMessage = 'Server error occurred';
+          console.error('[JOB DELETE] Server returned non-JSON response:', errorText);
+          errorMessage = errorText || 'Server error occurred';
         }
 
         throw new Error(errorMessage);
       }
 
-      return response.json();
+      const result = await response.json();
+      console.log('[JOB DELETE] Success response:', result);
+      return result;
     },
-    onSuccess: () => {
-      // Update the UI by invalidating queries (tab already switched)
+    onSuccess: (result) => {
+      console.log('[JOB DELETE] Delete successful:', result);
+      
+      // Update the UI by invalidating queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+
+      // Force immediate refetch of deleted posts
+      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
 
       toast({
         title: 'Job deleted successfully',
@@ -379,7 +392,7 @@ export default function Jobs() {
       });
     },
     onError: (error: any) => {
-      console.error('Delete job error:', error);
+      console.error('[JOB DELETE] Delete failed:', error);
       toast({
         title: 'Delete failed',
         description: error.message || 'Failed to delete job',
