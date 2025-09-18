@@ -523,6 +523,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/courses/:id", async (req, res) => {
     try {
       const courseId = req.params.id;
+      console.log(`Updating course with ID: ${courseId}`, req.body);
+      
       const validatedData = insertCourseSchema.parse(req.body);
 
       // Ensure the course remains free when updated
@@ -531,13 +533,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedCourse = await storage.updateCourse(courseId, validatedData);
 
       if (!updatedCourse) {
+        console.log(`Course not found for update: ${courseId}`);
         return res.status(404).json({ message: "Course not found" });
       }
 
-      res.json(updatedCourse);
+      console.log(`Course updated successfully: ${courseId}`);
+      
+      // Return the complete updated course data
+      res.json({
+        success: true,
+        message: "Course updated successfully", 
+        course: updatedCourse
+      });
     } catch (error) {
       console.error("Error updating course:", error);
-      res.status(500).json({ message: "Failed to update course" });
+      res.status(500).json({ success: false, message: "Failed to update course" });
     }
   });
 
@@ -616,13 +626,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`Company updated successfully: ${companyId}`);
-      res.json(updatedCompany);
+      
+      // Return the complete updated company data
+      res.json({
+        success: true,
+        message: "Company updated successfully",
+        company: updatedCompany
+      });
     } catch (error) {
       console.error("Error updating company:", error);
       if (error instanceof Error) {
-        res.status(400).json({ message: error.message });
+        res.status(400).json({ success: false, message: error.message });
       } else {
-        res.status(500).json({ message: "Failed to update company" });
+        res.status(500).json({ success: false, message: "Failed to update company" });
       }
     }
   });
