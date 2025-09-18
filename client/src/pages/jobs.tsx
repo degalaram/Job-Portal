@@ -349,7 +349,7 @@ export default function Jobs() {
       console.log(`[JOB DELETE] Deleting job ${jobId} for user ${userId}`);
 
       // Use the correct delete endpoint and send user-id in headers as expected by backend
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, {}, { 'user-id': userId });
 
       console.log(`[JOB DELETE] Response status: ${response.status}`);
 
