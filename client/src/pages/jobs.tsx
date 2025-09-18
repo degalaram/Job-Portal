@@ -374,15 +374,20 @@ export default function Jobs() {
       console.log(`[JOB DELETE] Deleting job ${jobId} for user ${userId}`);
 
       try {
-        // Use the correct delete endpoint and send user-id in headers as expected by backend
-        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, {}, { 'user-id': userId });
+        // Send both in headers and body for better compatibility
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
+          { userId }, 
+          { 
+            'user-id': userId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        );
 
         console.log(`[JOB DELETE] Response status: ${response.status}`);
 
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[JOB DELETE] API Error: ${response.status} - ${errorText}`);
-          throw new Error(`Delete failed: ${errorText || 'Unknown error'}`);
+          throw new Error(`Delete failed with status: ${response.status}`);
         }
 
         const result = await response.json();
@@ -390,7 +395,21 @@ export default function Jobs() {
         return result;
       } catch (error) {
         console.error('[JOB DELETE] Request failed:', error);
-        throw error;
+        
+        // Provide more specific error messages for common issues
+        if (error instanceof Error) {
+          if (error.message.includes('Failed to fetch')) {
+            throw new Error('Network error: Unable to connect to server. Please check your internet connection.');
+          } else if (error.message.includes('500')) {
+            throw new Error('Server error: Please try again later.');
+          } else if (error.message.includes('404')) {
+            throw new Error('Job not found or already deleted.');
+          } else {
+            throw error;
+          }
+        }
+        
+        throw new Error('An unexpected error occurred while deleting the job.');
       }
     },
     onSuccess: (result) => {
@@ -792,7 +811,16 @@ export default function Jobs() {
                       key={isDeleted ? `deleted-${deletedPostId}` : `job-${job.id}`}
                       className="hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-blue-500 w-full"
                       onClick={() => handleJobClick(job.id)}
+                      onContextMenu={(e) => {
+                        if (!isDeleted && !isExpired) {
+                          e.preventDefault();
+                          if (window.confirm('Do you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
+                            handleDeleteJob(e, job.id);
+                          }
+                        }
+                      }}
                       data-testid={`job-card-${job.id}`}
+                      title={!isDeleted && !isExpired ? "Right-click to delete this job" : undefined}
                     >
                       <CardContent className="p-3 sm:p-4 md:p-6">
                         {/* Header with Company Logos */}
@@ -936,7 +964,7 @@ export default function Jobs() {
                                   Restore
                                 </Button>
                               ) : (
-                                // Regular Job Actions: Apply and Delete buttons
+                                // Regular Job Actions: Apply button only
                                 <>
                                   {/* Apply Button or Applied Status */}
                                   {isApplied ? (
@@ -955,20 +983,6 @@ export default function Jobs() {
                                     </Button>
                                   ) : (
                                     <span className="text-xs text-gray-500">Expired</span>
-                                  )}
-
-                                  {/* Delete Button */}
-                                  {!isExpired && (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={(e) => handleDeleteJob(e, job.id)}
-                                      className="text-xs h-6 sm:h-7 px-1 sm:px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
-                                      data-testid={`delete-job-${job.id}`}
-                                      title="Delete Job"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </Button>
                                   )}
                                 </>
                               )}
