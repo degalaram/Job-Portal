@@ -54,6 +54,11 @@ export default function DeletedPosts() {
     }
   }, [navigate]);
 
+  // State for deleted posts with multiple fallbacks
+  const [deletedPostsState, setDeletedPostsState] = useState([]);
+  const [isLoadingState, setIsLoadingState] = useState(true);
+  const [errorState, setErrorState] = useState(null);
+
   // Use React Query for proper data fetching
   const { data: deletedPosts = [], isLoading, error, refetch } = useQuery({
     queryKey: ['deleted-posts', user?.id],
@@ -122,6 +127,53 @@ export default function DeletedPosts() {
     throwOnError: false, // Prevent unhandled promise rejections
   });
 
+  // Fallback method: Direct API call without React Query
+  const fetchDeletedPostsDirectly = useCallback(async () => {
+    if (!user?.id) return;
+    
+    console.log('[DELETED POSTS] FALLBACK: Using direct API call');
+    setIsLoadingState(true);
+    setErrorState(null);
+    
+    try {
+      const url = `/api/deleted-posts/user/${user.id}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id,
+          'Cache-Control': 'no-cache',
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[DELETED POSTS] FALLBACK: Direct API success:', data);
+        if (Array.isArray(data) && data.length > 0) {
+          setDeletedPostsState(data);
+        }
+      }
+    } catch (error) {
+      console.error('[DELETED POSTS] FALLBACK: Direct API error:', error);
+      setErrorState(error);
+    } finally {
+      setIsLoadingState(false);
+    }
+  }, [user?.id]);
+
+  // Update state when React Query data changes
+  useEffect(() => {
+    if (deletedPosts && Array.isArray(deletedPosts) && deletedPosts.length > 0) {
+      console.log('[DELETED POSTS] Updating state from React Query:', deletedPosts.length);
+      setDeletedPostsState(deletedPosts);
+      setIsLoadingState(false);
+      setErrorState(null);
+    } else if (!isLoading && deletedPosts && deletedPosts.length === 0) {
+      console.log('[DELETED POSTS] React Query returned empty array, trying fallback');
+      fetchDeletedPostsDirectly();
+    }
+  }, [deletedPosts, isLoading, fetchDeletedPostsDirectly]);
+
   // Listen for storage changes and other events to refresh when jobs are deleted
   useEffect(() => {
     if (!user?.id) return;
@@ -134,6 +186,7 @@ export default function DeletedPosts() {
           refetch().catch((error) => {
             console.error('[DELETED POSTS] Error refetching after job deletion:', error);
           });
+          fetchDeletedPostsDirectly();
         }, 1000); // Increased delay to ensure server has processed the deletion
         // Clear the flag
         localStorage.removeItem('job_deleted');
@@ -153,6 +206,7 @@ export default function DeletedPosts() {
           refetch().catch((error) => {
             console.error('[DELETED POSTS] Error refetching from flag check:', error);
           });
+          fetchDeletedPostsDirectly();
         }, 1000);
         // Clear all the flags
         localStorage.removeItem('job_deleted');
@@ -177,6 +231,7 @@ export default function DeletedPosts() {
       setTimeout(() => {
         console.log(`[DELETED POSTS] Triggering refetch from custom event`);
         refetch().catch(console.error);
+        fetchDeletedPostsDirectly();
       }, 1000);
     };
     
@@ -187,7 +242,7 @@ export default function DeletedPosts() {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('refreshDeletedPosts', handleCustomRefresh);
     };
-  }, [user?.id, refetch]);
+  }, [user?.id, refetch, fetchDeletedPostsDirectly]);
 
   const restorePostMutation = useMutation({
     mutationFn: async (postId: string) => {
@@ -366,7 +421,7 @@ export default function DeletedPosts() {
             <div className="bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-800">
               <div className="text-center">
                 <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                  {deletedPosts.length}
+                  {Math.max(deletedPosts?.length || 0, deletedPostsState?.length || 0)}
                 </div>
                 <div className="text-sm text-red-600 dark:text-red-400 font-medium">
                   Deleted Posts
@@ -388,27 +443,64 @@ export default function DeletedPosts() {
         </div>
 
         <div className="space-y-4 sm:space-y-6">
-          {(!deletedPosts || deletedPosts.length === 0) ? (
-            <div className="w-full max-w-4xl mx-auto">
-              <Card className="w-full">
-                <CardContent className="p-8 sm:p-12 text-center">
-                  <div className="text-gray-400 mb-4">
-                    <Trash2 className="w-12 sm:w-16 h-12 sm:h-16 mx-auto" />
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-medium text-gray-900 mb-2">No Deleted Posts</h3>
-                  <p className="text-gray-600 mb-6 text-sm sm:text-base max-w-md mx-auto">
-                    You haven't deleted any job applications. Deleted posts will appear here and can be restored within 5 days.
-                  </p>
-                  <Button onClick={() => navigate('/jobs')} data-testid="browse-jobs-button">
-                    <Briefcase className="w-4 h-4 mr-2" />
-                    Browse Jobs
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          ) : (
-            <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6">
-              {deletedPosts.map((deletedPost: any) => {
+          {/* Debug information */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <h4 className="font-semibold text-yellow-800">Debug Information:</h4>
+            <p className="text-sm text-yellow-700">
+              React Query data: {deletedPosts?.length || 0} posts | 
+              State data: {deletedPostsState?.length || 0} posts | 
+              Loading: {isLoading || isLoadingState ? 'Yes' : 'No'} | 
+              Error: {error || errorState ? 'Yes' : 'No'}
+            </p>
+            <button 
+              onClick={() => {
+                console.log('[DELETED POSTS] Manual refetch triggered');
+                refetch();
+                fetchDeletedPostsDirectly();
+              }}
+              className="mt-2 px-3 py-1 bg-yellow-200 hover:bg-yellow-300 rounded text-sm"
+            >
+              Force Refresh All Methods
+            </button>
+          </div>
+
+          {/* Use multiple data sources - prioritize state, then React Query */}
+          {(() => {
+            const displayData = deletedPostsState?.length > 0 ? deletedPostsState : (deletedPosts || []);
+            console.log('[DELETED POSTS] Display data chosen:', displayData?.length || 0, 'posts');
+            
+            return (!displayData || displayData.length === 0) ? (
+              <div className="w-full max-w-4xl mx-auto">
+                <Card className="w-full">
+                  <CardContent className="p-8 sm:p-12 text-center">
+                    <div className="text-gray-400 mb-4">
+                      <Trash2 className="w-12 sm:w-16 h-12 sm:h-16 mx-auto" />
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-medium text-gray-900 mb-2">No Deleted Posts</h3>
+                    <p className="text-gray-600 mb-6 text-sm sm:text-base max-w-md mx-auto">
+                      You haven't deleted any job applications. Deleted posts will appear here and can be restored within 5 days.
+                    </p>
+                    <div className="space-x-2">
+                      <Button onClick={() => navigate('/jobs')} data-testid="browse-jobs-button">
+                        <Briefcase className="w-4 h-4 mr-2" />
+                        Browse Jobs
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          refetch();
+                          fetchDeletedPostsDirectly();
+                        }}
+                      >
+                        🔄 Refresh Data
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6">
+                {displayData.map((deletedPost: any) => {
                 console.log('Processing deleted post:', deletedPost);
                 
                 // Create job object from deleted post data structure - now properly structured
@@ -598,9 +690,10 @@ export default function DeletedPosts() {
                     </CardContent>
                   </Card>
                 );
-              })}
-            </div>
-          )}
+                })}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
