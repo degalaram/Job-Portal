@@ -5,14 +5,18 @@ const getApiUrl = () => {
     return import.meta.env.VITE_API_BASE_URL;
   }
 
-  // PRIORITY 2: For Replit production/development environment
+  // PRIORITY 2: For all deployment environments (including Replit deployments)
   if (window.location.hostname.includes('replit.dev') || 
       window.location.hostname.includes('repl.co') || 
       window.location.hostname.includes('replit.app') ||
       window.location.hostname.includes('pike.replit.dev') ||
-      window.location.hostname.includes('projectnow.pages.dev')) {
+      window.location.hostname.includes('projectnow.pages.dev') ||
+      window.location.hostname.includes('replit-deployed') ||
+      window.location.hostname.includes('.app') ||
+      window.location.port === '' ||
+      window.location.protocol === 'https:') {
     const apiUrl = window.location.origin;
-    console.log('Using Replit/Pages API URL:', apiUrl);
+    console.log('Using deployment API URL:', apiUrl);
     return apiUrl;
   }
 
@@ -22,9 +26,9 @@ const getApiUrl = () => {
     return "http://localhost:5000";
   }
 
-  // PRIORITY 4: For same domain deployments (most production cases)
+  // PRIORITY 4: Fallback for any other cases
   const sameOriginUrl = window.location.origin;
-  console.log('Using same origin API URL:', sameOriginUrl);
+  console.log('Using fallback API URL:', sameOriginUrl);
   return sameOriginUrl;
 };
 
@@ -35,6 +39,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "Accept": "application/json",
     ...customHeaders,
   };
 
@@ -42,6 +47,8 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
     method,
     credentials: "include", // CRITICAL: Required for session management
     headers,
+    mode: "cors" as RequestMode,
+    cache: "no-cache" as RequestCache,
   };
 
   if (data && (method === "POST" || method === "PUT" || method === "PATCH")) {
@@ -53,7 +60,16 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
   console.log('Request headers:', headers);
   
   try {
-    const response = await fetch(url, options);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
     console.log(`API Response: ${method} ${url} - Status: ${response.status}`);
     console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
@@ -90,6 +106,9 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
   } catch (error) {
     console.error(`Network error for ${method} ${url}:`, error);
     if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout - please try again');
+      }
       throw error;
     }
     throw new Error('Network request failed');
