@@ -86,9 +86,13 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
           console.error('[API] Error data:', errorData);
         } else {
           const errorText = await response.text();
-          console.error('[API] Error text:', errorText);
-          if (errorText && errorText.length > 0) {
-            errorMessage = errorText;
+          console.error('[API] Error text (HTML response detected):', errorText.substring(0, 500));
+          
+          // Check if it's an HTML error page
+          if (errorText.includes('<!DOCTYPE html>') || errorText.includes('<html')) {
+            errorMessage = `Server error (${response.status}): The server returned an HTML error page instead of JSON. This indicates a server-side issue.`;
+          } else if (errorText && errorText.length > 0) {
+            errorMessage = errorText.substring(0, 200); // Limit error message length
           }
         }
       } catch (parseError) {
