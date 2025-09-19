@@ -231,7 +231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Set proper headers first
     res.setHeader('Content-Type', 'application/json');
     
-    console.log(`[JOB DELETE] ${new Date().toISOString()} - DELETE request received`);
+    console.log(`[JOB DELETE] ${new Date().toISOString()} - Soft delete request received`);
     console.log(`[JOB DELETE] Params:`, req.params);
     console.log(`[JOB DELETE] Body:`, req.body);
     console.log(`[JOB DELETE] Headers user-id:`, req.headers['user-id']);
@@ -261,42 +261,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Check if job exists
-      console.log(`[JOB DELETE] Checking if job ${jobId} exists...`);
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        console.log(`[JOB DELETE] Job not found: ${jobId}`);
-        return res.status(404).json({ 
-          error: 'Job not found',
-          success: false,
-          jobId: jobId
-        });
-      }
-
-      console.log(`[JOB DELETE] Job found: ${job.title}`);
-
-      // Check if already deleted by this user
-      console.log(`[JOB DELETE] Checking if already deleted by user ${userId}...`);
-      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
-      const existingDeletedPost = userDeletedPosts.find(dp => 
-        (dp.originalId === jobId || dp.jobId === jobId)
-      );
-      
-      if (existingDeletedPost) {
-        console.log(`[JOB DELETE] Job already deleted by user ${userId}`);
-        return res.status(200).json({ 
-          message: 'Job already deleted', 
-          deletedPost: existingDeletedPost,
-          success: true,
-          alreadyDeleted: true
-        });
-      }
-
-      // Perform soft delete
+      // Perform soft delete (this will handle checking if job exists and if already deleted)
       console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
       const deletedPost = await storage.softDeleteJob(jobId, userId);
       
-      console.log(`[JOB DELETE] Soft delete successful:`, deletedPost);
+      console.log(`[JOB DELETE] Soft delete successful:`, {
+        id: deletedPost.id,
+        jobId: deletedPost.jobId,
+        userId: deletedPost.userId,
+        title: deletedPost.title || deletedPost.job?.title
+      });
 
       res.status(200).json({ 
         message: 'Job moved to trash successfully',
@@ -417,7 +391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       if (!userId || userId.trim() === '') {
         console.log('[DELETED POSTS API] Invalid user ID provided');
-        return res.status(400).json([]);
+        return res.status(400).json({ error: 'Invalid user ID' });
       }
 
       console.log(`[DELETED POSTS API] Fetching from storage for user: ${userId}`);
@@ -430,76 +404,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json([]);
       }
 
-      // Transform the data structure to match what the frontend expects
-      const transformedDeletedPosts = [];
+      console.log(`[DELETED POSTS API] Returning ${deletedPosts.length} deleted posts for user ${userId}`);
       
-      for (const deletedPost of deletedPosts) {
-        try {
-          let transformedPost;
-          
-          // If it already has a job property, use it as is
-          if (deletedPost.job) {
-            transformedPost = {
-              id: deletedPost.id,
-              userId: deletedPost.userId,
-              deletedAt: deletedPost.deletedAt,
-              originalId: deletedPost.originalId || deletedPost.jobId,
-              job: {
-                ...deletedPost.job,
-                id: deletedPost.job.id || deletedPost.originalId || deletedPost.jobId,
-                company: deletedPost.job.company || {
-                  name: 'Unknown Company',
-                  location: deletedPost.job.location || 'Unknown Location'
-                }
-              }
-            };
-          } else {
-            // Create the expected structure from the flat data
-            transformedPost = {
-              id: deletedPost.id,
-              userId: deletedPost.userId,
-              deletedAt: deletedPost.deletedAt,
-              originalId: deletedPost.originalId || deletedPost.jobId,
-              job: {
-                id: deletedPost.originalId || deletedPost.jobId,
-                title: deletedPost.title || deletedPost.jobTitle || 'Unknown Job Title',
-                description: deletedPost.description || deletedPost.jobDescription || 'No description available',
-                location: deletedPost.location || deletedPost.jobLocation || 'Unknown Location',
-                salary: deletedPost.salary || deletedPost.jobSalary || 'Not specified',
-                skills: deletedPost.skills || deletedPost.jobSkills || '',
-                closingDate: deletedPost.scheduledDeletion || deletedPost.jobClosingDate || new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-                company: {
-                  name: deletedPost.companyName || 'Unknown Company',
-                  location: deletedPost.companyLocation || deletedPost.location || 'Unknown Location',
-                  logo: deletedPost.companyLogo || null
-                }
-              }
-            };
-          }
-          
-          transformedDeletedPosts.push(transformedPost);
-        } catch (transformError) {
-          console.error('[DELETED POSTS API] Error transforming deleted post:', transformError, deletedPost);
-          // Continue with other posts instead of failing entirely
-        }
-      }
-
-      console.log(`[DELETED POSTS API] Successfully transformed ${transformedDeletedPosts.length} deleted posts for user ${userId}`);
-      
-      if (transformedDeletedPosts.length > 0) {
-        console.log('[DELETED POSTS API] Sample transformed post:', {
-          id: transformedDeletedPosts[0].id,
-          jobTitle: transformedDeletedPosts[0].job?.title,
-          deletedAt: transformedDeletedPosts[0].deletedAt
+      if (deletedPosts.length > 0) {
+        console.log('[DELETED POSTS API] Sample deleted post:', {
+          id: deletedPosts[0].id,
+          jobTitle: deletedPosts[0].title || deletedPosts[0].job?.title,
+          deletedAt: deletedPosts[0].deletedAt
         });
       }
 
-      res.status(200).json(transformedDeletedPosts);
+      res.status(200).json(deletedPosts);
     } catch (error) {
       console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
       
-      // Always return JSON response, even on error
-      res.status(200).json([]); // Return empty array instead of error to prevent UI breaking
+      // Return error as JSON for proper debugging
+      res.status(500).json({ 
+        error: 'Failed to fetch deleted posts',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        userId: userId
+      });
     }
   });
 
