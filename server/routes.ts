@@ -228,74 +228,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Soft delete a job (hide from user's view)
   app.post('/api/jobs/:jobId/delete', async (req, res) => {
+    console.log(`[JOB DELETE] ${new Date().toISOString()} - DELETE request received`);
+    console.log(`[JOB DELETE] Params:`, req.params);
+    console.log(`[JOB DELETE] Body:`, req.body);
+    console.log(`[JOB DELETE] Headers user-id:`, req.headers['user-id']);
+    
     try {
       const { jobId } = req.params;
-      const userId = req.headers['user-id'] as string || req.body?.userId;
+      const userId = req.body?.userId || req.headers['user-id'] as string;
 
-      console.log(`[JOB DELETE] ${new Date().toISOString()} - Attempting to soft delete job ${jobId} for user ${userId}`);
+      console.log(`[JOB DELETE] Processing: jobId=${jobId}, userId=${userId}`);
 
-      if (!userId) {
-        console.log('[JOB DELETE] User ID missing');
+      // Validate inputs
+      if (!userId || userId.trim() === '') {
+        console.log('[JOB DELETE] User ID missing or empty');
         return res.status(400).json({ 
-          error: 'User ID required',
-          success: false
+          error: 'User ID is required',
+          success: false,
+          received: { userId, jobId }
         });
       }
 
-      if (!jobId) {
-        console.log('[JOB DELETE] Job ID missing');
+      if (!jobId || jobId.trim() === '') {
+        console.log('[JOB DELETE] Job ID missing or empty');
         return res.status(400).json({ 
-          error: 'Job ID required',
-          success: false
+          error: 'Job ID is required',
+          success: false,
+          received: { userId, jobId }
         });
       }
 
+      // Check if job exists
+      console.log(`[JOB DELETE] Checking if job ${jobId} exists...`);
       const job = await storage.getJobById(jobId);
       if (!job) {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({ 
           error: 'Job not found',
-          success: false
+          success: false,
+          jobId: jobId
         });
       }
 
+      console.log(`[JOB DELETE] Job found: ${job.title}`);
+
       // Check if already deleted by this user
+      console.log(`[JOB DELETE] Checking if already deleted by user ${userId}...`);
       const userDeletedPosts = await storage.getUserDeletedPosts(userId);
       const existingDeletedPost = userDeletedPosts.find(dp => 
         (dp.originalId === jobId || dp.jobId === jobId)
       );
       
       if (existingDeletedPost) {
-        console.log(`[JOB DELETE] Job already deleted by user`);
+        console.log(`[JOB DELETE] Job already deleted by user ${userId}`);
         return res.status(200).json({ 
           message: 'Job already deleted', 
           deletedPost: existingDeletedPost,
-          success: true
+          success: true,
+          alreadyDeleted: true
         });
       }
 
-      // Use the soft delete functionality from storage
+      // Perform soft delete
+      console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
       const deletedPost = await storage.softDeleteJob(jobId, userId);
       
-      console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
+      console.log(`[JOB DELETE] Soft delete successful:`, deletedPost);
 
       return res.status(200).json({ 
         message: 'Job deleted successfully',
         deletedPost: deletedPost,
         success: true,
         jobId: jobId,
-        userId: userId
+        userId: userId,
+        timestamp: new Date().toISOString()
       });
         
     } catch (error) {
-      console.error('[JOB DELETE] Error deleting job:', error);
+      console.error('[JOB DELETE] Error during deletion:', error);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      const errorStack = error instanceof Error ? error.stack : '';
+      
+      console.error('[JOB DELETE] Error stack:', errorStack);
       
       return res.status(500).json({ 
         error: 'Failed to delete job', 
         message: errorMessage,
-        success: false
+        success: false,
+        timestamp: new Date().toISOString()
       });
     }
   });
