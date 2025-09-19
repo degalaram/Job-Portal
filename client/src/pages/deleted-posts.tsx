@@ -66,12 +66,9 @@ export default function DeletedPosts() {
       console.log(`Fetching deleted posts for user: ${user.id}`);
       
       try {
-        const response = await fetch(`/api/deleted-posts/user/${user.id}?_t=${Date.now()}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'user-id': user.id
-          },
+        const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}`, undefined, {
+          'user-id': user.id,
+          'Cache-Control': 'no-cache'
         });
         
         console.log('API Response status:', response.status);
@@ -82,24 +79,11 @@ export default function DeletedPosts() {
             return [];
           }
           
-          const errorText = await response.text().catch(() => 'Unknown error');
-          console.error('API Error response:', errorText);
-          
-          if (response.status === 500) {
-            console.warn('Server error, returning empty array to prevent UI breaking');
-            return [];
-          }
-          
-          // Don't throw for client errors, just return empty array
           console.warn(`API error ${response.status}, returning empty array`);
           return [];
         }
         
-        const data = await response.json().catch((e) => {
-          console.error('Failed to parse JSON response:', e);
-          return [];
-        });
-        
+        const data = await response.json();
         console.log('Deleted posts received:', data);
         
         // Ensure we return an array
@@ -117,16 +101,13 @@ export default function DeletedPosts() {
       }
     },
     enabled: !!user?.id && !userLoading,
-    retry: 2,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
-    refetchInterval: 5000, // Refresh every 5 seconds
-    refetchOnWindowFocus: true,
+    retry: 1,
+    retryDelay: 1000,
+    refetchInterval: false, // Remove auto-refresh to reduce load
+    refetchOnWindowFocus: false,
     refetchOnMount: true,
     staleTime: 0, // Always fetch fresh data
-    onError: (error) => {
-      console.error('Query error:', error);
-      // Handle error silently to prevent unhandled rejections
-    }
+    throwOnError: false, // Prevent unhandled promise rejections
   });
 
   // Listen for storage changes to refresh when jobs are deleted
@@ -134,9 +115,11 @@ export default function DeletedPosts() {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'job_deleted' && user?.id) {
         console.log('Job deletion detected, refreshing deleted posts');
-        refetch().catch((error) => {
-          console.error('Error refetching after job deletion:', error);
-        });
+        setTimeout(() => {
+          refetch().catch((error) => {
+            console.error('Error refetching after job deletion:', error);
+          });
+        }, 500); // Small delay to ensure server has processed the deletion
         // Clear the flag
         localStorage.removeItem('job_deleted');
       }
@@ -146,9 +129,11 @@ export default function DeletedPosts() {
     const checkDeletedFlag = () => {
       if (localStorage.getItem('job_deleted') && user?.id) {
         console.log('Found job_deleted flag on mount, refreshing');
-        refetch().catch((error) => {
-          console.error('Error refetching on mount:', error);
-        });
+        setTimeout(() => {
+          refetch().catch((error) => {
+            console.error('Error refetching on mount:', error);
+          });
+        }, 500);
         localStorage.removeItem('job_deleted');
       }
     };
@@ -156,8 +141,17 @@ export default function DeletedPosts() {
     checkDeletedFlag();
     window.addEventListener('storage', handleStorageChange);
     
+    // Also listen for custom events
+    const handleCustomRefresh = () => {
+      console.log('Custom refresh event detected');
+      refetch().catch(console.error);
+    };
+    
+    window.addEventListener('refreshDeletedPosts', handleCustomRefresh);
+    
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('refreshDeletedPosts', handleCustomRefresh);
     };
   }, [user?.id, refetch]);
 
