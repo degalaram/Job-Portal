@@ -226,8 +226,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Soft delete a job (hide from user's view)
-  app.post('/api/jobs/:jobId/delete', async (req, res) => {
+  // Soft delete a job (move to deleted posts - similar to companies)
+  app.post('/api/jobs/:jobId/soft-delete', async (req, res) => {
     // Set proper headers first
     res.setHeader('Content-Type', 'application/json');
     
@@ -299,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[JOB DELETE] Soft delete successful:`, deletedPost);
 
       res.status(200).json({ 
-        message: 'Job deleted successfully',
+        message: 'Job moved to trash successfully',
         deletedPost: deletedPost,
         success: true,
         jobId: jobId,
