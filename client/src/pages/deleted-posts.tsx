@@ -54,32 +54,6 @@ export default function DeletedPosts() {
     }
   }, [navigate]);
 
-  // Listen for storage changes to refresh when jobs are deleted
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'job_deleted' && user?.id) {
-        console.log('Job deletion detected, refreshing deleted posts');
-        refetch();
-        // Clear the flag
-        localStorage.removeItem('job_deleted');
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also check periodically for deleted posts
-    const interval = setInterval(() => {
-      if (user?.id && !isLoading) {
-        refetch();
-      }
-    }, 5000);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, [user?.id, refetch, isLoading]);
-
   const { data: deletedPosts = [], isLoading, error, refetch } = useQuery({
     queryKey: ['deleted-posts', user?.id],
     queryFn: async () => {
@@ -134,6 +108,32 @@ export default function DeletedPosts() {
     refetchOnWindowFocus: true,
     refetchInterval: 5000, // Check every 5 seconds for updates
   });
+
+  // Listen for storage changes to refresh when jobs are deleted
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'job_deleted' && user?.id) {
+        console.log('Job deletion detected, refreshing deleted posts');
+        refetch();
+        // Clear the flag
+        localStorage.removeItem('job_deleted');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check periodically for deleted posts
+    const interval = setInterval(() => {
+      if (user?.id && !isLoading) {
+        refetch();
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [user?.id, refetch, isLoading]);
 
   const restorePostMutation = useMutation({
     mutationFn: async (postId: string) => {
