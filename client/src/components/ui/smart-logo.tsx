@@ -33,7 +33,17 @@ export function SmartLogo({ company, className, size = 48, fallbackClassName }: 
       'tata consultancy services': '/images/tcs-logo.png',
       'microsoft': '/images/microsoft-logo.png',
       'google': '/images/google-logo.png',
-      'amazon': '/images/amazon-logo.png'
+      'amazon': '/images/amazon-logo.png',
+      'accenture': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Accenture.svg/200px-Accenture.svg.png',
+      'wipro': 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Wipro_Primary_Logo_Color_RGB.svg/200px-Wipro_Primary_Logo_Color_RGB.svg.png',
+      'capgemini': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Capgemini_Logo.svg/200px-Capgemini_Logo.svg.png',
+      'cognizant': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Cognizant_logo_2022.svg/200px-Cognizant_logo_2022.svg.png',
+      'deloitte': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Deloitte.svg/200px-Deloitte.svg.png',
+      'ibm': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/IBM_logo.svg/200px-IBM_logo.svg.png',
+      'oracle': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Oracle_logo.svg/200px-Oracle_logo.svg.png',
+      'salesforce': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Salesforce.com_logo.svg/200px-Salesforce.com_logo.svg.png',
+      'adobe': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Adobe_Corporate_Logo.svg/200px-Adobe_Corporate_Logo.svg.png',
+      'netflix': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/200px-Netflix_2015_logo.svg.png'
     };
 
     const normalizedName = name.toLowerCase().trim();
@@ -51,9 +61,12 @@ export function SmartLogo({ company, className, size = 48, fallbackClassName }: 
         const url = new URL(cleanWebsite);
         const domain = url.hostname.replace('www.', '');
         
-        // Add reliable favicon sources (Google's service is most reliable)
+        // Add multiple reliable logo sources
         sources.push(
-          `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
+          `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+          `https://logo.clearbit.com/${domain}`,
+          `https://img.logo.dev/${domain}?token=pk_X6tOkA1jTMKJrfaW2xUfaQ&size=200`,
+          `https://favicons.githubusercontent.com/${domain}`
         );
       } catch (error) {
         console.log('Error parsing website URL:', error);
