@@ -1179,39 +1179,65 @@ export class MemStorage implements IStorage {
       return [];
     }
 
-    // Ensure each deleted post has complete job data with company information
+    // Return the deleted posts with complete data (they should already have job and company data from soft delete)
     const enrichedDeletedPosts = userDeletedPosts.map(post => {
       console.log(`[STORAGE] Processing deleted post ${post.id}`);
       
-      // If post already has job data, ensure it has company info
-      if (post.job) {
-        if (!post.job.company && post.job.companyId) {
-          const company = this.companies.get(post.job.companyId);
-          if (company) {
-            post.job.company = company;
-            console.log(`[STORAGE] Added company data to post ${post.id}`);
-          }
-        }
+      // The post should already have complete job and company data from the soft delete process
+      if (post.job && post.company) {
+        console.log(`[STORAGE] Post ${post.id} already has complete data`);
         return post;
       }
       
-      // If no job data, try to reconstruct it
-      if (post.originalId || post.jobId) {
-        const jobId = post.originalId || post.jobId;
-        const job = this.jobs.get(jobId);
-        if (job) {
-          const company = this.companies.get(job.companyId);
-          post.job = { ...job, company };
-          console.log(`[STORAGE] Reconstructed job data for post ${post.id}`);
-        } else {
-          console.log(`[STORAGE] Warning: Job ${jobId} not found for deleted post ${post.id}`);
+      // If missing job data, reconstruct it from the stored fields
+      if (!post.job && post.jobId) {
+        console.log(`[STORAGE] Reconstructing job data for post ${post.id}`);
+        post.job = {
+          id: post.jobId,
+          companyId: post.company?.id || '',
+          title: post.title,
+          description: post.description,
+          requirements: post.requirements,
+          qualifications: post.qualifications,
+          skills: post.skills,
+          experienceLevel: post.experienceLevel,
+          experienceMin: post.experienceMin,
+          experienceMax: post.experienceMax,
+          location: post.location,
+          jobType: post.jobType,
+          salary: post.salary,
+          applyUrl: post.applyUrl,
+          closingDate: post.closingDate,
+          batchEligible: post.batchEligible,
+          isActive: post.isActive,
+          createdAt: new Date(),
+          company: post.company
+        };
+      }
+      
+      // If missing company data but have job data with companyId
+      if (post.job && !post.job.company && post.job.companyId) {
+        const company = this.companies.get(post.job.companyId);
+        if (company) {
+          post.job.company = company;
+          post.company = company;
+          console.log(`[STORAGE] Added company data to post ${post.id}`);
         }
+      }
+      
+      // Ensure company data is available at the top level too
+      if (!post.company && post.job?.company) {
+        post.company = post.job.company;
       }
       
       return post;
     });
 
     console.log(`[STORAGE] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
+    enrichedDeletedPosts.forEach(post => {
+      console.log(`[STORAGE] Post ${post.id}: title="${post.title}", company="${post.company?.name}", hasJobData=${!!post.job}`);
+    });
+    
     return enrichedDeletedPosts;
   }
 
@@ -1270,7 +1296,7 @@ export class MemStorage implements IStorage {
       console.log(`[STORAGE] Using existing application: ${applicationId}`);
     }
 
-    // Create deleted post entry with complete job and company data (similar to deleted companies)
+    // Create deleted post entry with complete job and company data (exactly like deleted companies pattern)
     const deletedPost = {
       id: randomUUID(),
       userId: userId,
@@ -1280,15 +1306,56 @@ export class MemStorage implements IStorage {
       type: 'job' as const,
       title: jobWithCompany.title,
       description: jobWithCompany.description,
-      company: jobWithCompany.company,
-      location: jobWithCompany.location,
-      salary: jobWithCompany.salary,
-      experience: jobWithCompany.experienceLevel,
+      requirements: jobWithCompany.requirements,
+      qualifications: jobWithCompany.qualifications,
       skills: jobWithCompany.skills,
+      experienceLevel: jobWithCompany.experienceLevel,
+      experienceMin: jobWithCompany.experienceMin,
+      experienceMax: jobWithCompany.experienceMax,
+      location: jobWithCompany.location,
+      jobType: jobWithCompany.jobType,
+      salary: jobWithCompany.salary,
+      applyUrl: jobWithCompany.applyUrl,
+      closingDate: jobWithCompany.closingDate,
+      batchEligible: jobWithCompany.batchEligible,
+      isActive: jobWithCompany.isActive,
+      company: {
+        id: jobWithCompany.company.id,
+        name: jobWithCompany.company.name,
+        description: jobWithCompany.company.description,
+        website: jobWithCompany.company.website,
+        linkedinUrl: jobWithCompany.company.linkedinUrl,
+        logo: jobWithCompany.company.logo,
+        location: jobWithCompany.company.location,
+        industry: jobWithCompany.company.industry,
+        size: jobWithCompany.company.size,
+        founded: jobWithCompany.company.founded,
+        createdAt: jobWithCompany.company.createdAt
+      },
       deletedAt: new Date(),
-      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now (like companies have 7 days)
+      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
       originalType: 'job', // Add this field like deleted companies
-      job: jobWithCompany // Include complete job data for frontend compatibility
+      job: {
+        id: jobWithCompany.id,
+        companyId: jobWithCompany.companyId,
+        title: jobWithCompany.title,
+        description: jobWithCompany.description,
+        requirements: jobWithCompany.requirements,
+        qualifications: jobWithCompany.qualifications,
+        skills: jobWithCompany.skills,
+        experienceLevel: jobWithCompany.experienceLevel,
+        experienceMin: jobWithCompany.experienceMin,
+        experienceMax: jobWithCompany.experienceMax,
+        location: jobWithCompany.location,
+        jobType: jobWithCompany.jobType,
+        salary: jobWithCompany.salary,
+        applyUrl: jobWithCompany.applyUrl,
+        closingDate: jobWithCompany.closingDate,
+        batchEligible: jobWithCompany.batchEligible,
+        isActive: jobWithCompany.isActive,
+        createdAt: jobWithCompany.createdAt,
+        company: jobWithCompany.company
+      } // Include complete job data for frontend compatibility
     };
 
     this.deletedPosts.set(deletedPost.id, deletedPost);
@@ -1298,7 +1365,8 @@ export class MemStorage implements IStorage {
       id: deletedPost.id,
       userId: deletedPost.userId,
       jobId: deletedPost.jobId,
-      title: deletedPost.title
+      title: deletedPost.title,
+      companyName: deletedPost.company.name
     });
 
     return deletedPost;
@@ -1880,22 +1948,64 @@ export class DbStorage implements IStorage {
               userId: deletedPost.userId,
               originalId: deletedPost.originalId || deletedPost.jobId,
               jobId: deletedPost.jobId,
-              deletedAt: deletedPost.deletedAt,
+              applicationId: deletedPost.applicationId,
               type: deletedPost.type || 'job',
               title: jobWithCompany.title,
               description: jobWithCompany.description,
-              location: jobWithCompany.location,
-              salary: jobWithCompany.salary,
+              requirements: jobWithCompany.requirements,
+              qualifications: jobWithCompany.qualifications,
               skills: jobWithCompany.skills,
+              experienceLevel: jobWithCompany.experienceLevel,
+              experienceMin: jobWithCompany.experienceMin,
+              experienceMax: jobWithCompany.experienceMax,
+              location: jobWithCompany.location,
+              jobType: jobWithCompany.jobType,
+              salary: jobWithCompany.salary,
+              applyUrl: jobWithCompany.applyUrl,
+              closingDate: jobWithCompany.closingDate,
+              batchEligible: jobWithCompany.batchEligible,
+              isActive: jobWithCompany.isActive,
+              company: {
+                id: jobWithCompany.company.id,
+                name: jobWithCompany.company.name,
+                description: jobWithCompany.company.description,
+                website: jobWithCompany.company.website,
+                linkedinUrl: jobWithCompany.company.linkedinUrl,
+                logo: jobWithCompany.company.logo,
+                location: jobWithCompany.company.location,
+                industry: jobWithCompany.company.industry,
+                size: jobWithCompany.company.size,
+                founded: jobWithCompany.company.founded,
+                createdAt: jobWithCompany.company.createdAt
+              },
+              deletedAt: deletedPost.deletedAt,
               scheduledDeletion: new Date(deletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
+              originalType: 'job',
               job: {
-                ...jobWithCompany,
+                id: jobWithCompany.id,
+                companyId: jobWithCompany.companyId,
+                title: jobWithCompany.title,
+                description: jobWithCompany.description,
+                requirements: jobWithCompany.requirements,
+                qualifications: jobWithCompany.qualifications,
+                skills: jobWithCompany.skills,
+                experienceLevel: jobWithCompany.experienceLevel,
+                experienceMin: jobWithCompany.experienceMin,
+                experienceMax: jobWithCompany.experienceMax,
+                location: jobWithCompany.location,
+                jobType: jobWithCompany.jobType,
+                salary: jobWithCompany.salary,
+                applyUrl: jobWithCompany.applyUrl,
+                closingDate: jobWithCompany.closingDate,
+                batchEligible: jobWithCompany.batchEligible,
+                isActive: jobWithCompany.isActive,
+                createdAt: jobWithCompany.createdAt,
                 company: jobWithCompany.company
               }
             };
             
             enrichedDeletedPosts.push(enrichedPost);
-            console.log(`[DB] Enriched deleted post: ${enrichedPost.title} from ${enrichedPost.job.company.name}`);
+            console.log(`[DB] Enriched deleted post: ${enrichedPost.title} from ${enrichedPost.company.name}`);
           } else {
             console.log(`[DB] Warning: Job ${deletedPost.jobId} not found for deleted post ${deletedPost.id}`);
           }
@@ -1905,6 +2015,10 @@ export class DbStorage implements IStorage {
       }
 
       console.log(`[DB] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
+      enrichedDeletedPosts.forEach(post => {
+        console.log(`[DB] Post ${post.id}: title="${post.title}", company="${post.company?.name}", hasJobData=${!!post.job}`);
+      });
+      
       return enrichedDeletedPosts;
     } catch (error) {
       console.error(`[DB] Error fetching deleted posts for user ${userId}:`, error);
@@ -1943,7 +2057,19 @@ export class DbStorage implements IStorage {
 
       if (existingDeletedPost.length > 0) {
         console.log(`[${new Date().toLocaleTimeString()}] Job ${jobId} already soft deleted for user ${userId}`);
-        return existingDeletedPost[0];
+        // Return enriched existing deleted post
+        return {
+          ...existingDeletedPost[0],
+          job: jobWithCompany,
+          title: jobWithCompany.title,
+          description: jobWithCompany.description,
+          company: jobWithCompany.company,
+          location: jobWithCompany.location,
+          salary: jobWithCompany.salary,
+          skills: jobWithCompany.skills,
+          scheduledDeletion: new Date(existingDeletedPost[0].deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
+          originalType: 'job'
+        };
       }
 
       // Create deleted post entry with complete job data (similar to deleted companies)
@@ -1965,18 +2091,66 @@ export class DbStorage implements IStorage {
 
       console.log(`[${new Date().toLocaleTimeString()}] Successfully created deleted post entry:`, result[0]);
 
-      // Return the deleted post with complete job data (like companies do)
+      // Return the deleted post with complete job data (exactly like companies do)
       const enrichedDeletedPost = {
-        ...result[0],
-        job: jobWithCompany,
+        id: result[0].id,
+        userId: result[0].userId,
+        originalId: result[0].originalId || result[0].jobId,
+        jobId: result[0].jobId,
+        applicationId: result[0].applicationId,
+        type: 'job' as const,
         title: jobWithCompany.title,
         description: jobWithCompany.description,
-        company: jobWithCompany.company,
-        location: jobWithCompany.location,
-        salary: jobWithCompany.salary,
+        requirements: jobWithCompany.requirements,
+        qualifications: jobWithCompany.qualifications,
         skills: jobWithCompany.skills,
-        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
-        originalType: 'job'
+        experienceLevel: jobWithCompany.experienceLevel,
+        experienceMin: jobWithCompany.experienceMin,
+        experienceMax: jobWithCompany.experienceMax,
+        location: jobWithCompany.location,
+        jobType: jobWithCompany.jobType,
+        salary: jobWithCompany.salary,
+        applyUrl: jobWithCompany.applyUrl,
+        closingDate: jobWithCompany.closingDate,
+        batchEligible: jobWithCompany.batchEligible,
+        isActive: jobWithCompany.isActive,
+        company: {
+          id: jobWithCompany.company.id,
+          name: jobWithCompany.company.name,
+          description: jobWithCompany.company.description,
+          website: jobWithCompany.company.website,
+          linkedinUrl: jobWithCompany.company.linkedinUrl,
+          logo: jobWithCompany.company.logo,
+          location: jobWithCompany.company.location,
+          industry: jobWithCompany.company.industry,
+          size: jobWithCompany.company.size,
+          founded: jobWithCompany.company.founded,
+          createdAt: jobWithCompany.company.createdAt
+        },
+        deletedAt: result[0].deletedAt,
+        scheduledDeletion: new Date(result[0].deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
+        originalType: 'job',
+        job: {
+          id: jobWithCompany.id,
+          companyId: jobWithCompany.companyId,
+          title: jobWithCompany.title,
+          description: jobWithCompany.description,
+          requirements: jobWithCompany.requirements,
+          qualifications: jobWithCompany.qualifications,
+          skills: jobWithCompany.skills,
+          experienceLevel: jobWithCompany.experienceLevel,
+          experienceMin: jobWithCompany.experienceMin,
+          experienceMax: jobWithCompany.experienceMax,
+          location: jobWithCompany.location,
+          jobType: jobWithCompany.jobType,
+          salary: jobWithCompany.salary,
+          applyUrl: jobWithCompany.applyUrl,
+          closingDate: jobWithCompany.closingDate,
+          batchEligible: jobWithCompany.batchEligible,
+          isActive: jobWithCompany.isActive,
+          createdAt: jobWithCompany.createdAt,
+          company: jobWithCompany.company
+        }
       };
 
       console.log(`[${new Date().toLocaleTimeString()}] Job ${jobId} moved to trash for user ${userId}`);
