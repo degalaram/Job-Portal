@@ -1259,6 +1259,7 @@ export class MemStorage implements IStorage {
     // Initialize deletedPosts if not exists
     if (!this.deletedPosts) {
       this.deletedPosts = new Map<string, any>();
+      console.log(`[STORAGE] Initialized deletedPosts Map`);
     }
 
     // Check if already deleted by this user
@@ -1267,7 +1268,7 @@ export class MemStorage implements IStorage {
     );
     
     if (existingDeleted) {
-      console.log(`[STORAGE] Job ${jobId} already deleted for user ${userId}`);
+      console.log(`[STORAGE] Job ${jobId} already deleted for user ${userId}, returning existing`);
       return existingDeleted;
     }
 
@@ -1285,9 +1286,9 @@ export class MemStorage implements IStorage {
           status: 'applied' as const,
           appliedAt: new Date(),
         };
-        await this.createApplication(newApplication);
+        this.applications.set(newApplication.id, newApplication);
         applicationId = newApplication.id;
-        console.log(`[STORAGE] Created application for user ${userId} and job ${jobId}`);
+        console.log(`[STORAGE] Created application ${applicationId} for user ${userId} and job ${jobId}`);
       } catch (appError) {
         console.log(`[STORAGE] Failed to create application, continuing without: ${appError}`);
       }
@@ -1296,9 +1297,10 @@ export class MemStorage implements IStorage {
       console.log(`[STORAGE] Using existing application: ${applicationId}`);
     }
 
-    // Create deleted post entry with complete job and company data (exactly like deleted companies pattern)
+    // Create deleted post entry with complete job and company data
+    const deletedPostId = randomUUID();
     const deletedPost = {
-      id: randomUUID(),
+      id: deletedPostId,
       userId: userId,
       originalId: jobId,
       jobId: jobId,
@@ -1334,7 +1336,7 @@ export class MemStorage implements IStorage {
       },
       deletedAt: new Date(),
       scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
-      originalType: 'job', // Add this field like deleted companies
+      originalType: 'job',
       job: {
         id: jobWithCompany.id,
         companyId: jobWithCompany.companyId,
@@ -1355,19 +1357,30 @@ export class MemStorage implements IStorage {
         isActive: jobWithCompany.isActive,
         createdAt: jobWithCompany.createdAt,
         company: jobWithCompany.company
-      } // Include complete job data for frontend compatibility
+      }
     };
 
-    this.deletedPosts.set(deletedPost.id, deletedPost);
+    // Store the deleted post
+    this.deletedPosts.set(deletedPostId, deletedPost);
 
-    console.log(`[STORAGE] Job ${jobId} moved to trash for user ${userId} with deleted post ID: ${deletedPost.id}`);
-    console.log(`[STORAGE] Deleted post created:`, {
+    console.log(`[STORAGE] SUCCESSFULLY stored deleted post ${deletedPostId} for user ${userId}`);
+    console.log(`[STORAGE] Total deleted posts now: ${this.deletedPosts.size}`);
+    console.log(`[STORAGE] Deleted post details:`, {
       id: deletedPost.id,
       userId: deletedPost.userId,
       jobId: deletedPost.jobId,
       title: deletedPost.title,
-      companyName: deletedPost.company.name
+      companyName: deletedPost.company.name,
+      deletedAt: deletedPost.deletedAt
     });
+
+    // Verify the post was stored correctly
+    const verification = this.deletedPosts.get(deletedPostId);
+    if (verification) {
+      console.log(`[STORAGE] VERIFICATION PASSED: Deleted post ${deletedPostId} is properly stored`);
+    } else {
+      console.error(`[STORAGE] VERIFICATION FAILED: Deleted post ${deletedPostId} was not stored properly`);
+    }
 
     return deletedPost;
   }
