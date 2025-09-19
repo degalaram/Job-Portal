@@ -365,8 +365,7 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
-      console.log(`[DELETE] Starting delete operation for job ${jobId} and user ${userId}`);
-      console.log(`[DELETE] Current API URL: ${API_URL || window.location.origin}`);
+      console.log(`[DELETE] Starting soft delete operation for job ${jobId} and user ${userId}`);
       
       try {
         // Get the most current user data
@@ -378,13 +377,12 @@ export default function Jobs() {
         }
         
         console.log(`[DELETE] Using user ID: ${actualUserId}`);
-        console.log(`[DELETE] Making request to: /api/jobs/${jobId}/delete`);
+        console.log(`[DELETE] Making soft delete request to: /api/jobs/${jobId}/soft-delete`);
         
-        // Make the delete request with explicit headers and body
-        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
+        // Make the soft delete request (similar to companies)
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, 
           { 
-            userId: actualUserId,
-            jobId: jobId  // Include jobId in body as well
+            userId: actualUserId
           }, 
           { 
             'user-id': actualUserId,
@@ -395,12 +393,13 @@ export default function Jobs() {
         
         console.log(`[DELETE] Response status: ${response.status}`);
         
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to delete job: ${errorText}`);
+        }
+        
         const result = await response.json();
         console.log('[DELETE] Response data:', result);
-        
-        if (!result.success) {
-          throw new Error(result.message || result.error || 'Delete operation failed');
-        }
         
         return result;
       } catch (error) {
@@ -425,7 +424,7 @@ export default function Jobs() {
       }
     },
     onSuccess: (data) => {
-      console.log('[DELETE] Delete successful:', data);
+      console.log('[DELETE] Soft delete successful:', data);
       
       // Force refresh all related queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
@@ -437,14 +436,14 @@ export default function Jobs() {
       queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
 
       toast({
-        title: 'Job deleted successfully',
-        description: 'The job has been moved to deleted posts and can be restored within 5 days.',
+        title: 'Job moved to trash',
+        description: 'The job has been moved to deleted posts. You can restore it within 5 days.',
       });
     },
     onError: (error: any) => {
       console.error('[DELETE] Delete failed:', error);
       toast({
-        title: 'Delete failed',
+        title: 'Failed to move job to trash',
         description: error?.message || 'Failed to delete job. Please try again.',
         variant: 'destructive',
       });
@@ -545,7 +544,7 @@ export default function Jobs() {
     console.log(`[DELETE HANDLER] Confirmed: Deleting job ${jobId} for user ${user.id}`);
     console.log(`[DELETE HANDLER] User data:`, { id: user.id, email: user.email });
     
-    if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
+    if (window.confirm('Are you sure you want to move this job to trash? It will be moved to deleted posts and can be restored within 5 days.')) {
       console.log(`[DELETE HANDLER] User confirmed deletion for job ${jobId}`);
       
       // Show loading state
