@@ -1921,6 +1921,13 @@ export class DbStorage implements IStorage {
     console.log(`[DB] Getting deleted posts for user: ${userId}`);
 
     try {
+      // Check if we're using database or memory storage
+      if (!process.env.DATABASE_URL) {
+        console.log(`[DB] Using memory storage, delegating to MemStorage`);
+        // If no database URL, we're using MemStorage - this shouldn't happen in DbStorage
+        return [];
+      }
+
       // First get the raw deleted posts
       const deletedPosts = await db
         .select()
@@ -1939,8 +1946,13 @@ export class DbStorage implements IStorage {
       
       for (const deletedPost of deletedPosts) {
         try {
+          if (!deletedPost.jobId) {
+            console.log(`[DB] Skipping deleted post ${deletedPost.id} - no jobId`);
+            continue;
+          }
+
           // Get the complete job with company data
-          const jobWithCompany = await this.getJob(deletedPost.jobId!);
+          const jobWithCompany = await this.getJob(deletedPost.jobId);
           
           if (jobWithCompany) {
             const enrichedPost = {
@@ -1952,30 +1964,30 @@ export class DbStorage implements IStorage {
               type: deletedPost.type || 'job',
               title: jobWithCompany.title,
               description: jobWithCompany.description,
-              requirements: jobWithCompany.requirements,
-              qualifications: jobWithCompany.qualifications,
-              skills: jobWithCompany.skills,
+              requirements: jobWithCompany.requirements || '',
+              qualifications: jobWithCompany.qualifications || '',
+              skills: jobWithCompany.skills || '',
               experienceLevel: jobWithCompany.experienceLevel,
-              experienceMin: jobWithCompany.experienceMin,
-              experienceMax: jobWithCompany.experienceMax,
+              experienceMin: jobWithCompany.experienceMin || 0,
+              experienceMax: jobWithCompany.experienceMax || 1,
               location: jobWithCompany.location,
               jobType: jobWithCompany.jobType,
-              salary: jobWithCompany.salary,
-              applyUrl: jobWithCompany.applyUrl,
+              salary: jobWithCompany.salary || 'Not specified',
+              applyUrl: jobWithCompany.applyUrl || '',
               closingDate: jobWithCompany.closingDate,
-              batchEligible: jobWithCompany.batchEligible,
+              batchEligible: jobWithCompany.batchEligible || '',
               isActive: jobWithCompany.isActive,
               company: {
                 id: jobWithCompany.company.id,
                 name: jobWithCompany.company.name,
-                description: jobWithCompany.company.description,
-                website: jobWithCompany.company.website,
-                linkedinUrl: jobWithCompany.company.linkedinUrl,
-                logo: jobWithCompany.company.logo,
-                location: jobWithCompany.company.location,
-                industry: jobWithCompany.company.industry,
-                size: jobWithCompany.company.size,
-                founded: jobWithCompany.company.founded,
+                description: jobWithCompany.company.description || '',
+                website: jobWithCompany.company.website || '',
+                linkedinUrl: jobWithCompany.company.linkedinUrl || '',
+                logo: jobWithCompany.company.logo || '',
+                location: jobWithCompany.company.location || '',
+                industry: jobWithCompany.company.industry || '',
+                size: jobWithCompany.company.size || 'medium',
+                founded: jobWithCompany.company.founded || '',
                 createdAt: jobWithCompany.company.createdAt
               },
               deletedAt: deletedPost.deletedAt,
@@ -1986,18 +1998,18 @@ export class DbStorage implements IStorage {
                 companyId: jobWithCompany.companyId,
                 title: jobWithCompany.title,
                 description: jobWithCompany.description,
-                requirements: jobWithCompany.requirements,
-                qualifications: jobWithCompany.qualifications,
-                skills: jobWithCompany.skills,
+                requirements: jobWithCompany.requirements || '',
+                qualifications: jobWithCompany.qualifications || '',
+                skills: jobWithCompany.skills || '',
                 experienceLevel: jobWithCompany.experienceLevel,
-                experienceMin: jobWithCompany.experienceMin,
-                experienceMax: jobWithCompany.experienceMax,
+                experienceMin: jobWithCompany.experienceMin || 0,
+                experienceMax: jobWithCompany.experienceMax || 1,
                 location: jobWithCompany.location,
                 jobType: jobWithCompany.jobType,
-                salary: jobWithCompany.salary,
-                applyUrl: jobWithCompany.applyUrl,
+                salary: jobWithCompany.salary || 'Not specified',
+                applyUrl: jobWithCompany.applyUrl || '',
                 closingDate: jobWithCompany.closingDate,
-                batchEligible: jobWithCompany.batchEligible,
+                batchEligible: jobWithCompany.batchEligible || '',
                 isActive: jobWithCompany.isActive,
                 createdAt: jobWithCompany.createdAt,
                 company: jobWithCompany.company
@@ -2007,7 +2019,49 @@ export class DbStorage implements IStorage {
             enrichedDeletedPosts.push(enrichedPost);
             console.log(`[DB] Enriched deleted post: ${enrichedPost.title} from ${enrichedPost.company.name}`);
           } else {
-            console.log(`[DB] Warning: Job ${deletedPost.jobId} not found for deleted post ${deletedPost.id}`);
+            console.log(`[DB] Warning: Job ${deletedPost.jobId} not found for deleted post ${deletedPost.id} - may have been permanently deleted`);
+            // Create a minimal post entry even if job is not found
+            const minimalPost = {
+              id: deletedPost.id,
+              userId: deletedPost.userId,
+              originalId: deletedPost.originalId || deletedPost.jobId,
+              jobId: deletedPost.jobId,
+              applicationId: deletedPost.applicationId,
+              type: deletedPost.type || 'job',
+              title: 'Job Not Found',
+              description: 'This job may have been permanently removed.',
+              requirements: '',
+              qualifications: '',
+              skills: '',
+              experienceLevel: 'fresher' as const,
+              experienceMin: 0,
+              experienceMax: 1,
+              location: 'Unknown',
+              jobType: 'full-time' as const,
+              salary: 'Not specified',
+              applyUrl: '',
+              closingDate: new Date(),
+              batchEligible: '',
+              isActive: false,
+              company: {
+                id: 'unknown',
+                name: 'Unknown Company',
+                description: '',
+                website: '',
+                linkedinUrl: '',
+                logo: '',
+                location: '',
+                industry: '',
+                size: 'medium' as const,
+                founded: '',
+                createdAt: new Date()
+              },
+              deletedAt: deletedPost.deletedAt,
+              scheduledDeletion: new Date(deletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
+              originalType: 'job'
+            };
+            
+            enrichedDeletedPosts.push(minimalPost);
           }
         } catch (error) {
           console.error(`[DB] Error enriching deleted post ${deletedPost.id}:`, error);
@@ -2015,10 +2069,6 @@ export class DbStorage implements IStorage {
       }
 
       console.log(`[DB] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
-      enrichedDeletedPosts.forEach(post => {
-        console.log(`[DB] Post ${post.id}: title="${post.title}", company="${post.company?.name}", hasJobData=${!!post.job}`);
-      });
-      
       return enrichedDeletedPosts;
     } catch (error) {
       console.error(`[DB] Error fetching deleted posts for user ${userId}:`, error);
