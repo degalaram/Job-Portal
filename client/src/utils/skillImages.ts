@@ -176,19 +176,19 @@ export const getCompanyLogoFromUrl = (website?: string, linkedinUrl?: string, na
       'https://favicons.githubusercontent.com/amazon.com'
     ],
     'infosys': [
-      '/public/images/infosys-logo.png',
+      '/images/infosys-logo.png',
       'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Infosys_logo.svg/200px-Infosys_logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/infosys.svg',
       'https://logo.clearbit.com/infosys.com'
     ],
     'tcs': [
-      '/public/images/tcs-logo.png',
+      '/images/tcs-logo.png',
       'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
       'https://logo.clearbit.com/tcs.com'
     ],
     'tata consultancy services': [
-      '/public/images/tcs-logo.png',
+      '/images/tcs-logo.png',
       'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tata_Consultancy_Services_Logo.svg/200px-Tata_Consultancy_Services_Logo.svg.png',
       'https://cdn.worldvectorlogo.com/logos/tata-consultancy-services-tcs.svg',
       'https://logo.clearbit.com/tcs.com'
