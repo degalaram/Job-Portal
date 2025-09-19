@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -21,13 +22,10 @@ import {
   Youtube,
   X,
   Trash2,
-  Instagram,
-  RotateCcw
+  Instagram
 } from 'lucide-react';
 import { FaWhatsapp, FaTelegram } from 'react-icons/fa';
 import type { Job, Company } from '@shared/schema';
-import { getCompanyLogoWithFallback } from '@/utils/skillImages'; // Import the enhanced logo function
-import { SmartLogo } from '@/components/ui/smart-logo';
 
 type JobWithCompany = Job & { company: Company };
 
@@ -249,14 +247,14 @@ export default function Jobs() {
           navigate('/login');
           return;
         }
-
+        
         const parsedUser = JSON.parse(userString);
         if (!parsedUser || !parsedUser.id) {
           console.log('Invalid user data, redirecting to login');
           navigate('/login');
           return;
         }
-
+        
         setUser(parsedUser);
         setIsAuthChecked(true);
       } catch (error) {
@@ -316,30 +314,6 @@ export default function Jobs() {
     }
   }, [applications]);
 
-  // Fetch deleted posts for the user
-  const { data: deletedPosts = [], refetch: refetchDeletedPosts } = useQuery({
-    queryKey: ['deleted-posts', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return [];
-      try {
-        console.log(`Fetching deleted posts for user: ${user.id}`);
-        const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch deleted posts');
-        }
-        const data = await response.json();
-        console.log(`Fetched ${Array.isArray(data) ? data.length : 0} deleted posts`);
-        return Array.isArray(data) ? data : [];
-      } catch (error) {
-        console.error('Error fetching deleted posts:', error);
-        return [];
-      }
-    },
-    enabled: isAuthChecked && !!user?.id && activeTab === 'deleted',
-    staleTime: 0,
-    retry: 2,
-  });
-
   // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
   const applyMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -371,111 +345,43 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
-      console.log(`[JOB DELETE] Deleting job ${jobId} for user ${userId}`);
+      // Use the correct delete endpoint and send user-id in headers as expected by backend
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
 
-      try {
-        // Send both in headers and body for better compatibility
-        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
-          { userId }, 
-          { 
-            'user-id': userId,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        );
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Failed to delete job';
 
-        console.log(`[JOB DELETE] Response status: ${response.status}`);
-
-        if (!response.ok) {
-          throw new Error(`Delete failed with status: ${response.status}`);
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          console.error('Server returned non-JSON response:', errorText);
+          errorMessage = 'Server error occurred';
         }
 
-        const result = await response.json();
-        console.log('[JOB DELETE] Success response:', result);
-        return result;
-      } catch (error) {
-        console.error('[JOB DELETE] Request failed:', error);
-        
-        // Provide more specific error messages for common issues
-        if (error instanceof Error) {
-          if (error.message.includes('Failed to fetch')) {
-            throw new Error('Network error: Unable to connect to server. Please check your internet connection.');
-          } else if (error.message.includes('500')) {
-            throw new Error('Server error: Please try again later.');
-          } else if (error.message.includes('404')) {
-            throw new Error('Job not found or already deleted.');
-          } else {
-            throw error;
-          }
-        }
-        
-        throw new Error('An unexpected error occurred while deleting the job.');
+        throw new Error(errorMessage);
       }
-    },
-    onSuccess: (result) => {
-      console.log('[JOB DELETE] Delete successful:', result);
 
-      // Update the UI by invalidating queries
+      return response.json();
+    },
+    onSuccess: () => {
+      // Update the UI by invalidating queries (tab already switched)
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-
-      // Force immediate refetch of deleted posts
-      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
-
+      queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      
       toast({
         title: 'Job deleted successfully',
         description: 'The job has been moved to deleted posts and can be restored within 5 days.',
       });
     },
     onError: (error: any) => {
-      console.error('[JOB DELETE] Delete failed:', error);
+      console.error('Delete job error:', error);
       toast({
         title: 'Delete failed',
         description: error.message || 'Failed to delete job',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Restore deleted job mutation
-  const restoreJobMutation = useMutation({
-    mutationFn: async ({ deletedPostId }: { deletedPostId: string }) => {
-      console.log(`[JOB RESTORE] Restoring deleted post ${deletedPostId}`);
-
-      const response = await apiRequest('POST', `/api/deleted-posts/${deletedPostId}/restore`, {});
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[JOB RESTORE] API Error: ${response.status} - ${errorText}`);
-        throw new Error(`Restore failed: ${errorText || 'Unknown error'}`);
-      }
-
-      return response.json();
-    },
-    onSuccess: (result) => {
-      console.log('[JOB RESTORE] Restore successful:', result);
-
-      // Update the UI by invalidating queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-
-      toast({
-        title: 'Job restored successfully',
-        description: 'The job has been restored and is now visible in the jobs list.',
-      });
-
-      // Switch back to all jobs tab to see the restored job
-      setActiveTab('all');
-    },
-    onError: (error: any) => {
-      console.error('[JOB RESTORE] Restore failed:', error);
-      toast({
-        title: 'Restore failed',
-        description: error.message || 'Failed to restore job',
         variant: 'destructive',
       });
     },
@@ -505,7 +411,7 @@ export default function Jobs() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">Failed to connect to the server. Please try again later.</p>
-            <button
+            <button 
               onClick={() => refetch()}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
               data-testid="button-retry"
@@ -518,33 +424,30 @@ export default function Jobs() {
     );
   }
 
-  const filteredJobs = (() => {
-    // Filter regular jobs only
-    return Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
-      const matchesSearch = searchTerm === '' ||
-        job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.skills.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredJobs = Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
+    const matchesSearch = searchTerm === '' ||
+      job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.skills.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesLocation = locationFilter === '' ||
-        job.location.toLowerCase().includes(locationFilter.toLowerCase());
+    const matchesLocation = locationFilter === '' ||
+      job.location.toLowerCase().includes(locationFilter.toLowerCase());
 
-      const now = new Date();
-      const closingDate = new Date(job.closingDate);
-      const isExpired = closingDate < now;
+    const now = new Date();
+    const closingDate = new Date(job.closingDate);
+    const isExpired = closingDate < now;
 
-      switch (activeTab) {
-        case 'fresher':
-          return matchesSearch && matchesLocation && job.experienceLevel === 'fresher' && !isExpired;
-        case 'experienced':
-          return matchesSearch && matchesLocation && job.experienceLevel === 'experienced' && !isExpired;
-        case 'expired':
-          return matchesSearch && matchesLocation && (isExpired || !job.isActive);
-        default:
-          return matchesSearch && matchesLocation && !isExpired && job.isActive;
-      }
-    }) : [];
-  })();
+    switch (activeTab) {
+      case 'fresher':
+        return matchesSearch && matchesLocation && job.experienceLevel === 'fresher' && !isExpired;
+      case 'experienced':
+        return matchesSearch && matchesLocation && job.experienceLevel === 'experienced' && !isExpired;
+      case 'expired':
+        return matchesSearch && matchesLocation && (isExpired || !job.isActive);
+      default:
+        return matchesSearch && matchesLocation && !isExpired && job.isActive;
+    }
+  }) : [];
 
 
   const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
@@ -559,17 +462,6 @@ export default function Jobs() {
     }
   };
 
-  const handleRestoreJob = (e: React.MouseEvent, deletedPostId: string) => {
-    e.stopPropagation();
-    if (!user || !user.id) {
-      navigate('/login');
-      return;
-    }
-    if (window.confirm('Are you sure you want to restore this job? It will be moved back to the active jobs list.')) {
-      restoreJobMutation.mutate({ deletedPostId });
-    }
-  };
-
   const handleJobClick = (jobId: string) => {
     navigate(`/jobs/${jobId}`);
   };
@@ -578,6 +470,7 @@ export default function Jobs() {
     e.stopPropagation();
     if (!user) {
       navigate('/login');
+      return;
     }
 
     // If job has an apply URL, open it in a new tab
@@ -673,14 +566,14 @@ export default function Jobs() {
 
         {/* Job Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* Mobile: Grid Layout */}
+          {/* Mobile: 2x2 Grid Layout */}
           <div className="block sm:hidden mb-6">
-            <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto mb-2">
+            <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
               <button
                 onClick={() => setActiveTab('all')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'all'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'all' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-all-jobs"
@@ -690,8 +583,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('fresher')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'fresher'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'fresher' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-fresher-jobs"
@@ -701,8 +594,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('experienced')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'experienced'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'experienced' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-experienced-jobs"
@@ -712,8 +605,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('expired')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'expired'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'expired' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-expired-jobs"
@@ -721,38 +614,19 @@ export default function Jobs() {
                 Expired Jobs
               </button>
             </div>
-            {/* Additional row for Deleted Jobs */}
-            <div className="grid grid-cols-1 gap-2 max-w-sm mx-auto">
-              <button
-                onClick={() => setActiveTab('deleted')}
-                className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'deleted'
-                    ? 'bg-red-600 text-white shadow'
-                    : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                }`}
-                data-testid="tab-deleted-jobs"
-              >
-                <Trash2 className="w-4 h-4 inline mr-2" />
-                Deleted Jobs
-              </button>
-            </div>
           </div>
 
           {/* Desktop: Horizontal Layout */}
-          <TabsList className="hidden sm:grid w-full grid-cols-5 mb-4 sm:mb-6 md:mb-8 h-auto p-1">
+          <TabsList className="hidden sm:grid w-full grid-cols-4 mb-4 sm:mb-6 md:mb-8 h-auto p-1">
             <TabsTrigger value="all" data-testid="tab-all-jobs-desktop" className="text-sm px-3 py-2">All Jobs</TabsTrigger>
             <TabsTrigger value="fresher" data-testid="tab-fresher-jobs-desktop" className="text-sm px-3 py-2">Fresher Jobs</TabsTrigger>
             <TabsTrigger value="experienced" data-testid="tab-experienced-jobs-desktop" className="text-sm px-3 py-2">Experienced Jobs</TabsTrigger>
             <TabsTrigger value="expired" data-testid="tab-expired-jobs-desktop" className="text-sm px-3 py-2">Expired Jobs</TabsTrigger>
-            <TabsTrigger value="deleted" data-testid="tab-deleted-jobs-desktop" className="text-sm px-3 py-2 text-red-600 data-[state=active]:bg-red-600 data-[state=active]:text-white">
-              <Trash2 className="w-4 h-4 inline mr-2" />
-              Deleted Jobs
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value={activeTab}>
             <div className="space-y-3 sm:space-y-4 md:space-y-6">
-              {filteredJobs.length === 0 && activeTab !== 'deleted' ? (
+              {filteredJobs.length === 0 ? (
                 <Card>
                   <CardContent className="p-8 text-center">
                     <div className="text-gray-400 mb-4">
@@ -766,61 +640,17 @@ export default function Jobs() {
                     </p>
                   </CardContent>
                 </Card>
-              ) : activeTab === 'deleted' && deletedPosts.length === 0 ? (
-                <Card>
-                  <CardContent className="p-8 text-center">
-                    <div className="text-gray-400 mb-4">
-                      <Trash2 className="w-12 h-12 mx-auto" />
-                    </div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No deleted jobs</h3>
-                    <p className="text-gray-600">
-                      You have not deleted any jobs.
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : filteredJobs.length === 0 ? ( // This case handles when filteredJobs is empty for non-deleted tabs
-                <Card>
-                  <CardContent className="p-8 text-center">
-                    <div className="text-gray-400 mb-4">
-                      <Users className="w-12 h-12 mx-auto" />
-                    </div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No jobs found</h3>
-                    <p className="text-gray-600">
-                      Try adjusting your search criteria or check back later for new opportunities.
-                    </p>
-                  </CardContent>
-                </Card>
               ) : (
-                (activeTab === 'deleted' ? deletedPosts : filteredJobs).map((item: any) => {
-                  // Handle both regular jobs and deleted posts
-                  const isDeleted = activeTab === 'deleted';
-                  const job = isDeleted ? item.job : item;
-                  const deletedPostId = isDeleted ? item.id : null;
-
-                  // Ensure we have a valid job object
-                  if (!job || !job.id) {
-                    console.warn('Invalid job object:', item);
-                    return null;
-                  }
-
+                filteredJobs.map((job: JobWithCompany) => {
                   const isApplied = appliedJobs.includes(job.id);
-                  const isExpired = job.closingDate ? new Date(job.closingDate) < new Date() : false;
+                  const isExpired = new Date(job.closingDate) < new Date();
 
                   return (
                     <Card
-                      key={isDeleted ? `deleted-${deletedPostId}` : `job-${job.id}`}
+                      key={job.id}
                       className="hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-blue-500 w-full"
                       onClick={() => handleJobClick(job.id)}
-                      onContextMenu={(e) => {
-                        if (!isDeleted && !isExpired) {
-                          e.preventDefault();
-                          if (window.confirm('Do you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
-                            handleDeleteJob(e, job.id);
-                          }
-                        }
-                      }}
                       data-testid={`job-card-${job.id}`}
-                      title={!isDeleted && !isExpired ? "Right-click to delete this job" : undefined}
                     >
                       <CardContent className="p-3 sm:p-4 md:p-6">
                         {/* Header with Company Logos */}
@@ -828,12 +658,24 @@ export default function Jobs() {
                           <div className="flex items-start space-x-3 flex-1">
                             {/* Left Company Logo */}
                             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
-                              <SmartLogo
-                                company={job.company}
-                                className="object-contain rounded"
-                                size={48}
-                                fallbackClassName="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"
-                              />
+                              {job.company.logo || getCompanyLogo(job.company) ? (
+                                <img 
+                                  src={job.company.logo || getCompanyLogo(job.company)!} 
+                                  alt={job.company.name}
+                                  className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    const parent = target.parentElement;
+                                    if (parent) {
+                                      parent.innerHTML = `<div class="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm sm:text-lg font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                  <span className="text-sm sm:text-lg font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
+                                </div>
+                              )}
                             </div>
 
                             {/* Job Info */}
@@ -854,12 +696,24 @@ export default function Jobs() {
 
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
-                            <SmartLogo
-                              company={job.company}
-                              className="object-contain rounded-lg"
-                              size={64}
-                              fallbackClassName="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"
-                            />
+                            {job.company.logo || getCompanyLogo(job.company) ? (
+                              <img 
+                                src={job.company.logo || getCompanyLogo(job.company)!} 
+                                alt={job.company.name}
+                                className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = `<div class="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"><span class="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <span className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -950,41 +804,37 @@ export default function Jobs() {
                                 View Details
                               </Button>
 
-                              {/* Action Buttons - Different for Regular vs Deleted Jobs */}
-                              {isDeleted ? (
-                                // Deleted Job Actions: Restore button
+                              {/* Apply Button or Applied Status */}
+                              {isApplied ? (
+                                <div className="flex items-center space-x-1">
+                                  <CheckCircle className="w-3 h-3 text-green-600" />
+                                  <span className="text-xs text-green-600 font-medium">Applied</span>
+                                </div>
+                              ) : !isExpired ? (
                                 <Button
                                   size="sm"
-                                  onClick={(e) => handleRestoreJob(e, deletedPostId)}
-                                  className="bg-green-600 hover:bg-green-700 text-xs h-6 sm:h-7 px-2"
-                                  data-testid={`restore-job-${job.id}`}
-                                  title="Restore Job"
+                                  onClick={(e) => handleApplyJob(e, job)}
+                                  className="bg-blue-600 hover:bg-blue-700 text-xs h-6 sm:h-7 px-1 sm:px-2"
+                                  data-testid={`apply-now-${job.id}`}
                                 >
-                                  <RotateCcw className="w-3 h-3 mr-1" />
-                                  Restore
+                                  Apply Now
                                 </Button>
                               ) : (
-                                // Regular Job Actions: Apply button only
-                                <>
-                                  {/* Apply Button or Applied Status */}
-                                  {isApplied ? (
-                                    <div className="flex items-center space-x-1">
-                                      <CheckCircle className="w-3 h-3 text-green-600" />
-                                      <span className="text-xs text-green-600 font-medium">Applied</span>
-                                    </div>
-                                  ) : !isExpired ? (
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => handleApplyJob(e, job)}
-                                      className="bg-blue-600 hover:bg-blue-700 text-xs h-6 sm:h-7 px-1 sm:px-2"
-                                      data-testid={`apply-now-${job.id}`}
-                                    >
-                                      Apply Now
-                                    </Button>
-                                  ) : (
-                                    <span className="text-xs text-gray-500">Expired</span>
-                                  )}
-                                </>
+                                <span className="text-xs text-gray-500">Expired</span>
+                              )}
+
+                              {/* Delete Button */}
+                              {!isExpired && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => handleDeleteJob(e, job.id)}
+                                  className="text-xs h-6 sm:h-7 px-1 sm:px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
+                                  data-testid={`delete-job-${job.id}`}
+                                  title="Delete Job"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
                               )}
                             </div>
                           </div>
