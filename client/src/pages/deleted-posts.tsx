@@ -54,90 +54,45 @@ export default function DeletedPosts() {
     }
   }, [navigate]);
 
-  // Bypass React Query temporarily for testing
-  const [deletedPosts, setDeletedPosts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<any>(null);
-
-  // Manual fetch to bypass React Query issues
-  useEffect(() => {
-    let mounted = true;
-    
-    const fetchDeletedPosts = async () => {
-      if (!user?.id || userLoading) {
-        console.log('Skipping fetch - no user or still loading');
-        return;
+  // Use React Query for proper data fetching
+  const { data: deletedPosts = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['deleted-posts', user?.id],
+    queryFn: async () => {
+      if (!user?.id) {
+        throw new Error('User ID is required');
       }
       
+      console.log(`Fetching deleted posts for user: ${user.id}`);
+      
       try {
-        console.log(`[DIRECT FETCH] Starting fetch for user: ${user.id}`);
-        setIsLoading(true);
-        
         const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}?_t=${Date.now()}`);
         
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[DIRECT FETCH] API Error: ${response.status} - ${errorText}`);
-          
           if (response.status === 404) {
-            console.log('[DIRECT FETCH] No deleted posts found for user');
-            if (mounted) {
-              setDeletedPosts([]);
-              setError(null);
-            }
-            return;
+            console.log('No deleted posts found for user');
+            return [];
           }
           
+          const errorText = await response.text();
           throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorText}`);
         }
         
         const data = await response.json();
-        console.log('[DIRECT FETCH] Raw API response:', data);
-        console.log(`[DIRECT FETCH] Successfully received ${Array.isArray(data) ? data.length : 0} deleted posts`);
+        console.log('Deleted posts received:', data);
         
-        if (mounted) {
-          if (Array.isArray(data)) {
-            console.log('[DIRECT FETCH] Setting deleted posts state:', data);
-            setDeletedPosts(data);
-            setError(null);
-          } else {
-            console.warn('[DIRECT FETCH] API did not return an array, setting empty array');
-            setDeletedPosts([]);
-            setError(null);
-          }
-        }
+        return Array.isArray(data) ? data : [];
       } catch (error) {
-        console.error('[DIRECT FETCH] Error:', error);
-        if (mounted) {
-          setError(error);
-          setDeletedPosts([]);
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
+        console.error('Error fetching deleted posts:', error);
+        throw error;
       }
-    };
-
-    // Initial fetch
-    fetchDeletedPosts();
-
-    // Set up interval for periodic refresh
-    const interval = setInterval(() => {
-      console.log('[DIRECT FETCH] Periodic refresh triggered');
-      fetchDeletedPosts();
-    }, 5000);
-
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [user?.id, userLoading]);
-
-  const refetch = useCallback(async () => {
-    console.log('[DIRECT FETCH] Manual refetch called');
-    // Trigger a re-run of the effect by updating a dependency
-  }, []);
+    },
+    enabled: !!user?.id && !userLoading,
+    retry: 3,
+    retryDelay: 1000,
+    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+  });
 
   // Listen for storage changes to refresh when jobs are deleted
   useEffect(() => {
@@ -152,18 +107,10 @@ export default function DeletedPosts() {
 
     window.addEventListener('storage', handleStorageChange);
     
-    // Also check periodically for deleted posts
-    const interval = setInterval(() => {
-      if (user?.id && !isLoading) {
-        refetch();
-      }
-    }, 5000);
-
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
     };
-  }, [user?.id, refetch, isLoading]);
+  }, [user?.id, refetch]);
 
   const restorePostMutation = useMutation({
     mutationFn: async (postId: string) => {
@@ -341,16 +288,6 @@ export default function DeletedPosts() {
         </div>
 
         <div className="space-y-4 sm:space-y-6">
-          {(() => {
-            console.log('=== RENDERING DELETED POSTS ===');
-            console.log('Current deletedPosts state:', deletedPosts);
-            console.log('Length:', deletedPosts?.length || 0);
-            console.log('Is loading:', isLoading);
-            console.log('Error:', error);
-            console.log('User ID:', user?.id);
-            console.log('=== END DEBUG INFO ===');
-            return null;
-          })()}
           {(!deletedPosts || deletedPosts.length === 0) ? (
             <div className="w-full max-w-4xl mx-auto">
               <Card className="w-full">
