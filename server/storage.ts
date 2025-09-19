@@ -1153,25 +1153,65 @@ export class MemStorage implements IStorage {
   }
 
   async getUserDeletedPosts(userId: string): Promise<any[]> {
-    console.log(`Storage: Getting deleted posts for user ${userId}`);
+    console.log(`[STORAGE] Getting deleted posts for user ${userId} at ${new Date().toISOString()}`);
+    
+    // Ensure deletedPosts is initialized
     if (!this.deletedPosts) {
-      this.deletedPosts = new Map<string, any>(); // Ensure it's initialized as a Map if it somehow became undefined
+      console.log(`[STORAGE] Initializing deletedPosts Map for user ${userId}`);
+      this.deletedPosts = new Map<string, any>();
     }
-    const userDeletedPosts = Array.from(this.deletedPosts.values()).filter(post => post.userId === userId);
-    console.log(`Storage: Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
+    
+    console.log(`[STORAGE] Total deleted posts in storage: ${this.deletedPosts.size}`);
+    
+    const allDeletedPosts = Array.from(this.deletedPosts.values());
+    console.log(`[STORAGE] All deleted posts:`, allDeletedPosts.map(p => ({ id: p.id, userId: p.userId, jobId: p.jobId })));
+    
+    const userDeletedPosts = allDeletedPosts.filter(post => {
+      const matches = post.userId === userId;
+      console.log(`[STORAGE] Post ${post.id}: userId=${post.userId}, matches=${matches}`);
+      return matches;
+    });
+    
+    console.log(`[STORAGE] Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
+
+    if (userDeletedPosts.length === 0) {
+      console.log(`[STORAGE] No deleted posts found for user ${userId}, returning empty array`);
+      return [];
+    }
 
     // Ensure each deleted post has complete job data with company information
     const enrichedDeletedPosts = userDeletedPosts.map(post => {
-      if (post.job && !post.job.company) {
-        // Get company data for the job
-        const company = this.companies.get(post.job.companyId);
-        if (company) {
-          post.job.company = company;
+      console.log(`[STORAGE] Processing deleted post ${post.id}`);
+      
+      // If post already has job data, ensure it has company info
+      if (post.job) {
+        if (!post.job.company && post.job.companyId) {
+          const company = this.companies.get(post.job.companyId);
+          if (company) {
+            post.job.company = company;
+            console.log(`[STORAGE] Added company data to post ${post.id}`);
+          }
+        }
+        return post;
+      }
+      
+      // If no job data, try to reconstruct it
+      if (post.originalId || post.jobId) {
+        const jobId = post.originalId || post.jobId;
+        const job = this.jobs.get(jobId);
+        if (job) {
+          const company = this.companies.get(job.companyId);
+          post.job = { ...job, company };
+          console.log(`[STORAGE] Reconstructed job data for post ${post.id}`);
+        } else {
+          console.log(`[STORAGE] Warning: Job ${jobId} not found for deleted post ${post.id}`);
         }
       }
+      
       return post;
     });
 
+    console.log(`[STORAGE] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
     return enrichedDeletedPosts;
   }
 
