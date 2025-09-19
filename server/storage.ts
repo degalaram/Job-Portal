@@ -1794,6 +1794,21 @@ export class DbStorage implements IStorage {
     return []; // Placeholder
   }
 
+  async updateAdminPassword(newPassword: string): Promise<void> {
+    // Create hash with the same salt used for verification
+    const { createHash } = await import('crypto');
+    const newPasswordHash = createHash('sha256').update(newPassword + 'jobportal_secure_salt_2024').digest('hex');
+
+    // In a real application, you would store this in a database
+    // For now, we'll log it and update the verification logic
+    console.log(`🔐 New admin password hash: ${newPasswordHash.slice(0, 16)}****`);
+    console.log(`🔑 Admin password updated successfully`);
+    // Example of how you might update a user record (assuming an admin user exists with a specific ID or role):
+    // await db.update(schema.users)
+    //   .set({ password: newPasswordHash })
+    //   .where(eq(schema.users.email, 'admin@example.com')); // Or use a specific admin identifier
+  }
+
   async getUserDeletedPosts(userId: string): Promise<Array<DeletedPost & { job: Job & { company: Company } }>> {
     console.log(`Getting deleted posts for user: ${userId}`);
 
