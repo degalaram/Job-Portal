@@ -230,6 +230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/jobs/:jobId/soft-delete', async (req, res) => {
     // Set proper headers first
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-cache');
     
     console.log(`[JOB DELETE] ${new Date().toISOString()} - Soft delete request received`);
     console.log(`[JOB DELETE] Params:`, req.params);
@@ -261,6 +262,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Check if job exists first
+      const existingJob = await storage.getJob(jobId);
+      if (!existingJob) {
+        console.log(`[JOB DELETE] Job not found: ${jobId}`);
+        return res.status(404).json({
+          error: 'Job not found',
+          success: false,
+          jobId: jobId
+        });
+      }
+
       // Perform soft delete (this will handle checking if job exists and if already deleted)
       console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
       const deletedPost = await storage.softDeleteJob(jobId, userId);
@@ -289,8 +301,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.error('[JOB DELETE] Error stack:', errorStack);
       
+      // Determine appropriate status code
+      let statusCode = 500;
+      if (errorMessage.includes('not found')) {
+        statusCode = 404;
+      } else if (errorMessage.includes('already deleted')) {
+        statusCode = 409; // Conflict
+      }
+      
       // Ensure we return JSON even on error
-      res.status(500).json({ 
+      res.status(statusCode).json({ 
         error: 'Failed to delete job', 
         message: errorMessage,
         success: false,
@@ -400,8 +420,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DELETED POSTS API] Fetching from storage for user: ${userId}`);
       
       // Add timeout to prevent hanging requests
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
       );
       
       const deletedPostsPromise = storage.getUserDeletedPosts(userId);
@@ -422,7 +442,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: deletedPosts[0].id,
           jobTitle: deletedPosts[0].title || deletedPosts[0].job?.title,
           deletedAt: deletedPosts[0].deletedAt,
-          hasJobData: !!deletedPosts[0].job
+          hasJobData: !!deletedPosts[0].job,
+          companyName: deletedPosts[0].company?.name
         });
       }
 
@@ -430,16 +451,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
       
-      // Return detailed error information
-      const errorDetails = {
-        error: 'Failed to fetch deleted posts',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        userId: userId,
-        timestamp: new Date().toISOString(),
-        stack: error instanceof Error ? error.stack : undefined
-      };
+      // Always return empty array for client-side stability, but log the error
+      console.error('[DELETED POSTS API] Full error details:', error);
       
-      res.status(500).json(errorDetails);
+      // Return empty array to prevent UI breaking
+      res.status(200).json([]);
     }
   });
 
