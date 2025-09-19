@@ -48,14 +48,14 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
     options.body = JSON.stringify(data);
   }
 
-  console.log(`API Request: ${method} ${url}`, data ? 'with data' : 'without data');
-  if (customHeaders) {
-    console.log('Custom headers:', customHeaders);
-  }
+  console.log(`API Request: ${method} ${url}`);
+  console.log('Request data:', data);
+  console.log('Request headers:', headers);
   
   try {
     const response = await fetch(url, options);
     console.log(`API Response: ${method} ${url} - Status: ${response.status}`);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       console.error(`API Error: ${method} ${url} - ${response.status}`);
@@ -72,6 +72,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
           console.error('Error data:', errorData);
         } else {
           const errorText = await responseClone.text();
+          console.error('Error text:', errorText);
           if (errorText && errorText.length > 0) {
             errorMessage = errorText;
           }
