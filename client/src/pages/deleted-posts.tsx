@@ -334,18 +334,36 @@ export default function DeletedPosts() {
               {deletedPosts.map((deletedPost: any) => {
                 console.log('Processing deleted post:', deletedPost);
                 
-                // Create job object from deleted post data structure
-                const job = deletedPost?.job || {
-                  id: deletedPost.originalId || deletedPost.jobId,
-                  title: deletedPost.title,
-                  description: deletedPost.description,
-                  location: deletedPost.location,
-                  salary: deletedPost.salary,
-                  skills: deletedPost.skills || '',
-                  closingDate: deletedPost.scheduledDeletion,
-                  company: deletedPost.company || {
+                // Create job object from deleted post data structure - now properly structured
+                const job = {
+                  id: deletedPost.originalId || deletedPost.jobId || deletedPost.id,
+                  title: deletedPost.title || deletedPost.job?.title || 'Unknown Title',
+                  description: deletedPost.description || deletedPost.job?.description || 'No description available',
+                  location: deletedPost.location || deletedPost.job?.location || 'Unknown Location',
+                  salary: deletedPost.salary || deletedPost.job?.salary || 'Not specified',
+                  skills: deletedPost.skills || deletedPost.job?.skills || '',
+                  closingDate: deletedPost.closingDate || deletedPost.job?.closingDate || deletedPost.scheduledDeletion,
+                  requirements: deletedPost.requirements || deletedPost.job?.requirements || '',
+                  qualifications: deletedPost.qualifications || deletedPost.job?.qualifications || '',
+                  experienceLevel: deletedPost.experienceLevel || deletedPost.job?.experienceLevel || 'fresher',
+                  experienceMin: deletedPost.experienceMin || deletedPost.job?.experienceMin || 0,
+                  experienceMax: deletedPost.experienceMax || deletedPost.job?.experienceMax || 1,
+                  jobType: deletedPost.jobType || deletedPost.job?.jobType || 'full-time',
+                  applyUrl: deletedPost.applyUrl || deletedPost.job?.applyUrl || '',
+                  batchEligible: deletedPost.batchEligible || deletedPost.job?.batchEligible || '',
+                  isActive: deletedPost.isActive !== undefined ? deletedPost.isActive : (deletedPost.job?.isActive || true),
+                  company: deletedPost.company || deletedPost.job?.company || {
+                    id: 'unknown',
                     name: 'Unknown Company',
-                    location: deletedPost.location || 'Unknown Location'
+                    description: '',
+                    website: '',
+                    linkedinUrl: '',
+                    logo: '',
+                    location: deletedPost.location || 'Unknown Location',
+                    industry: '',
+                    size: 'medium',
+                    founded: '',
+                    createdAt: new Date()
                   }
                 };
                 
