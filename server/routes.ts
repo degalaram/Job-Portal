@@ -234,6 +234,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.headers['user-id'] as string || req.body?.userId;
 
       console.log(`[JOB DELETE] ${new Date().toISOString()} - Attempting to soft delete job ${jobId} for user ${userId}`);
+      console.log(`[JOB DELETE] Request headers:`, req.headers);
+      console.log(`[JOB DELETE] Request body:`, req.body);
 
       if (!userId) {
         console.log('[JOB DELETE] User ID missing from both header and body');
@@ -253,8 +255,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Find the job with company data
-      const job = await storage.getJob(jobId);
+      // Find the job with company data using getJobById which includes company
+      const job = await storage.getJobById(jobId);
       if (!job) {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({ 
@@ -263,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString()
         });
       }
-      console.log(`[JOB DELETE] Job found:`, { id: job.id, title: job.title, company: job.company.name });
+      console.log(`[JOB DELETE] Job found:`, { id: job.id, title: job.title, company: job.company?.name || 'Unknown' });
 
       // Check if already deleted by this user
       const userDeletedPosts = await storage.getUserDeletedPosts(userId);
@@ -286,6 +288,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
       console.log(`[JOB DELETE] Successfully created deleted post with ID: ${deletedPost.id}`);
 
+      // Set proper response headers to ensure JSON response
+      res.setHeader('Content-Type', 'application/json');
+      
       // Ensure we return a proper JSON response
       return res.status(200).json({ 
         message: 'Job deleted successfully',
@@ -297,6 +302,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('[JOB DELETE] Error deleting job:', error);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      // Set proper response headers to ensure JSON response
+      res.setHeader('Content-Type', 'application/json');
       
       // Ensure we return a proper JSON error response
       return res.status(500).json({ 
