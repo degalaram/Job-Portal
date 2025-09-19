@@ -345,10 +345,16 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
-      // Use the correct delete endpoint and send user-id in headers as expected by backend
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
+      console.log(`Attempting to delete job ${jobId} for user ${userId}`);
       
-      // apiRequest already handles error responses properly, so we just need to parse the JSON
+      // Use the correct delete endpoint and send user-id in headers as expected by backend
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId }, { 'user-id': userId });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Failed to delete job: ${response.status}`);
+      }
+      
       return response.json();
     },
     onSuccess: () => {
