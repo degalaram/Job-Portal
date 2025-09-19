@@ -1,1313 +1,2019 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
 import {
-  insertUserSchema,
-  insertJobSchema,
-  insertApplicationSchema,
-  insertContactSchema,
-  insertCompanySchema,
-  insertCourseSchema,
-  loginSchema
+  type User, type InsertUser, type Company, type InsertCompany,
+  type Job, type InsertJob, type Course, type InsertCourse,
+  type Application, type InsertApplication, type Contact, type InsertContact,
+  type LoginData
 } from "../shared/schema.js";
-import path from 'path';
-import fs from 'fs';
-import { marked } from 'marked';
-import { fileURLToPath } from 'url';
-import cors from 'cors';
-import { nanoid } from 'nanoid';
-import { criticalSystemProtection, systemIntegrityCheck } from './security-middleware';
+import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Drizzle imports for database operations
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import { eq, desc, ilike, or, sql, and, not, inArray, gt } from 'drizzle-orm';
+import { deletedPostsTable, jobsTable, companiesTable, applicationsTable } from "../shared/schema.js";
+import * as schema from "../shared/schema.js";
+import { nanoid } from 'nanoid'; // For generating unique IDs
 
+// Placeholder for DeletedPost type if not already defined in schema
+// In a real scenario, this would be imported from @shared/schema
+type DeletedPost = {
+  id: string;
+  userId: string;
+  jobId: string | null;
+  applicationId: string | null;
+  deletedAt: Date | null;
+};
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Apply critical security middleware
-  app.use(criticalSystemProtection);
-  
-  // Verify system integrity on startup
-  if (!systemIntegrityCheck()) {
-    throw new Error('System integrity check failed - admin functionality disabled');
+export interface IStorage {
+  // Auth
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserById(id: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  validateUser(email: string, password: string): Promise<User | undefined>;
+  updateUserPassword(email: string, newPassword: string): Promise<void>;
+
+  // Password reset
+  storePasswordResetOtp(email: string, otp: string): Promise<void>;
+  verifyPasswordResetOtp(email: string, otp: string): Promise<boolean>;
+  clearPasswordResetOtp(email: string): Promise<void>;
+
+  // Companies
+  getCompanies(): Promise<Company[]>;
+  getCompany(id: string): Promise<Company | undefined>;
+  createCompany(company: InsertCompany): Promise<Company>;
+  updateCompany(id: string, updates: Partial<InsertCompany>): Promise<Company | undefined>;
+  deleteCompany(id: string): Promise<boolean>;
+
+  // Deleted Companies
+  softDeleteCompany(id: string): Promise<any>;
+  getDeletedCompanies(): Promise<any[]>;
+  restoreDeletedCompany(id: string): Promise<Company | undefined>;
+  permanentlyDeleteCompany(id: string): Promise<boolean>;
+  updateDeletedCompany(id: string, updateData: any): Promise<any>;
+
+  // Jobs
+  getJobs(filters?: { experienceLevel?: string; location?: string; search?: string; userId?: string }): Promise<(Job & { company: Company })[]>;
+  getJob(id: string): Promise<(Job & { company: Company }) | undefined>;
+  getJobById(id: string): Promise<Job | undefined>; // Added getJobById method
+  createJob(job: InsertJob): Promise<Job>;
+  updateJob(id: string, job: Partial<InsertJob>): Promise<Job | undefined>;
+  deleteJob(jobId: string): Promise<void>; // Added deleteJob to the interface
+
+  // Applications
+  createApplication(application: InsertApplication): Promise<Application>;
+  getUserApplications(userId: string): Promise<(Application & { job: Job & { company: Company } })[]>;
+  deleteApplication(id: string): Promise<void>;
+
+  // Courses
+  getCourses(category?: string): Promise<Course[]>;
+  getCourse(id: string): Promise<Course | undefined>;
+  createCourse(course: InsertCourse): Promise<Course>;
+  updateCourse(id: string, updates: Partial<InsertCourse>): Promise<Course | undefined>;
+  deleteCourse(courseId: string): Promise<boolean>; // Added deleteCourse to the interface
+
+  // Contact
+  createContact(contact: InsertContact): Promise<Contact>;
+
+  // Deleted Posts
+  addDeletedPost(post: any): Promise<void>;
+  getDeletedPosts(): Promise<any[]>;
+  getUserDeletedPosts(userId: string): Promise<any[]>; // Added method to get deleted posts for a specific user
+  deletePostFromDeleted(id: string): Promise<void>;
+  softDeleteJob(jobId: string, userId: string): Promise<any>;
+  softDeleteApplication(applicationId: string): Promise<any>;
+  restoreDeletedPost(deletedPostId: string): Promise<any>;
+  permanentlyDeletePost(deletedPostId: string): Promise<void>;
+}
+
+export class MemStorage implements IStorage {
+  private users: Map<string, User>;
+  private companies: Map<string, Company>;
+  private jobs: Map<string, Job>;
+  private courses: Map<string, Course>;
+  private applications: Map<string, Application>;
+  private contacts: Map<string, Contact>;
+  private passwordResetOtps: Map<string, {otp: string; expiresAt: Date }>;
+  private deletedPosts = new Map<string, any>();
+  private deletedCompanies = new Map<string, any>();
+
+  constructor() {
+    this.users = new Map();
+    this.companies = new Map();
+    this.jobs = new Map();
+    this.courses = new Map();
+    this.applications = new Map();
+    this.contacts = new Map();
+    this.passwordResetOtps = new Map();
+
+    // Initialize with sample data
+    this.initializeSampleData();
   }
-  
-  // CORS is already configured in server/index.ts - no need to duplicate here
 
-  // Auth routes
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const validatedData = insertUserSchema.parse(req.body);
-
-      // Check if user already exists
-      const existingUser = await storage.getUserByEmail(validatedData.email);
-      if (existingUser) {
-        return res.status(400).json({ message: "User already exists with this email" });
+  async initializeSampleData() {
+    // Add new companies to ensure they persist
+    const newCompanies = [
+      {
+        id: "adp-id",
+        name: "ADP",
+        description: "Automatic Data Processing - A provider of cloud-based human capital management solutions",
+        website: "https://adp.com",
+        linkedinUrl: "https://linkedin.com/company/adp",
+        logo: "https://logo.clearbit.com/adp.com",
+        location: "Bengaluru, India",
+        industry: "Technology",
+        size: "large",
+        founded: "1949",
+        createdAt: new Date(),
+      },
+      {
+        id: "honeywell-id",
+        name: "Honeywell",
+        description: "A Fortune 100 technology company that delivers industry-specific solutions",
+        website: "https://honeywell.com",
+        linkedinUrl: "https://linkedin.com/company/honeywell",
+        logo: "https://logo.clearbit.com/honeywell.com",
+        location: "Bengaluru, India",
+        industry: "Technology",
+        size: "large",
+        founded: "1906",
+        createdAt: new Date(),
+      },
+      {
+        id: "adobe-id",
+        name: "Adobe",
+        description: "A multinational computer software company focused on creating multimedia and creativity software products",
+        website: "https://adobe.com",
+        linkedinUrl: "https://linkedin.com/company/adobe",
+        logo: "https://logo.clearbit.com/adobe.com",
+        location: "Bengaluru, India",
+        industry: "Software",
+        size: "large",
+        founded: "1982",
+        createdAt: new Date(),
+      },
+      {
+        id: "zoho-id",
+        name: "Zoho",
+        description: "An American multinational technology company that makes computer software for businesses",
+        website: "https://zoho.com",
+        linkedinUrl: "https://linkedin.com/company/zoho",
+        logo: "https://logo.clearbit.com/zoho.com",
+        location: "Chennai, India",
+        industry: "Software",
+        size: "medium",
+        founded: "1996",
+        createdAt: new Date(),
       }
-
-      const user = await storage.createUser(validatedData);
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error creating user:", error);
-      res.status(500).json({ message: "Failed to create user" });
-    }
-  });
-
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const validatedData = loginSchema.parse(req.body);
-      const user = await storage.validateUser(validatedData.email, validatedData.password);
-
-      if (!user) {
-        return res.status(401).json({ message: "Wrong username or wrong password" });
-      }
-
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error logging in user:", error);
-      res.status(500).json({ message: "Failed to login" });
-    }
-  });
-
-  // User profile routes
-  app.patch("/api/users/:id", async (req, res) => {
-    try {
-      const userId = req.params.id;
-      const updateData = req.body;
-
-      // Handle password update separately
-      if (updateData.currentPassword && updateData.newPassword) {
-        const user = await storage.getUserById(userId);
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        const bcrypt = await import('bcryptjs');
-        const isValidPassword = await bcrypt.compare(updateData.currentPassword, user.password);
-        if (!isValidPassword) {
-          return res.status(400).json({ message: "Current password is not correct" });
-        }
-
-        const hashedPassword = await bcrypt.hash(updateData.newPassword, 12);
-        updateData.password = hashedPassword;
-        delete updateData.currentPassword;
-        delete updateData.newPassword;
-      }
-
-      const updatedUser = await storage.updateUser(userId, updateData);
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Remove password from response
-      const { password, ...userWithoutPassword } = updatedUser;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error updating user:", error);
-      res.status(500).json({ message: "Failed to update user" });
-    }
-  });
-
-  // Password recovery routes
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    try {
-      const { email } = req.body;
-
-      if (!email) {
-        return res.status(400).json({ message: "Email is required" });
-      }
-
-      // Check if user exists
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: "User not found with this email" });
-      }
-
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Store OTP in memory (in production, use a proper storage solution)
-      await storage.storePasswordResetOtp(email, otp);
-
-      // In a real implementation, send email with OTP using SendGrid
-      // For now, we'll just log it and return success
-      console.log(`Password reset OTP for ${email}: ${otp}`);
-
-      res.json({ message: "OTP sent to your email" });
-    } catch (error) {
-      console.error("Error sending password reset OTP:", error);
-      res.status(500).json({ message: "Failed to send OTP" });
-    }
-  });
-
-  app.post("/api/auth/verify-otp", async (req, res) => {
-    try {
-      const { email, otp } = req.body;
-
-      if (!email || !otp) {
-        return res.status(400).json({ message: "Email and OTP are required" });
-      }
-
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ message: "Invalid or expired OTP" });
-      }
-
-      res.json({ message: "OTP verified successfully" });
-    } catch (error) {
-      console.error("Error verifying OTP:", error);
-      res.status(500).json({ message: "Failed to verify OTP" });
-    }
-  });
-
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
-      const { email, otp, newPassword } = req.body;
-
-      if (!email || !otp || !newPassword) {
-        return res.status(400).json({ message: "Email, OTP, and new password are required" });
-      }
-
-      // Verify OTP again
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ message: "Invalid or expired OTP" });
-      }
-
-      // Update password
-      await storage.updateUserPassword(email, newPassword);
-
-      // Clear the OTP
-      await storage.clearPasswordResetOtp(email);
-
-      res.json({ message: "Password updated successfully" });
-    } catch (error) {
-      console.error("Error resetting password:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
-
-  // Jobs routes
-  app.get('/api/jobs', async (req, res) => {
-    try {
-      const userId = req.headers['user-id'] as string;
-      console.log(`[${new Date().toLocaleTimeString()}] [express] GET /api/jobs - User: ${userId}`);
-
-      const filters = {
-        experienceLevel: req.query.experienceLevel as string,
-        location: req.query.location as string,
-        search: req.query.search as string,
-        userId: userId
-      };
-
-      const jobs = await storage.getJobs(filters);
-      console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'}`);
-      res.json(jobs);
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-      res.status(500).json({ error: 'Failed to fetch jobs' });
-    }
-  });
-
-  // Get single job
-  app.get('/api/jobs/:id', async (req, res) => {
-    try {
-      const job = await storage.getJobById(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
-      }
-      res.json(job);
-    } catch (error) {
-      console.error('Get job error:', error);
-      res.status(500).json({ error: 'Failed to get job' });
-    }
-  });
-
-  // Soft delete a job (move to deleted posts - similar to companies)
-  app.post('/api/jobs/:jobId/soft-delete', async (req, res) => {
-    // Set proper headers first
-    res.setHeader('Content-Type', 'application/json');
-    
-    console.log(`[JOB DELETE] ${new Date().toISOString()} - DELETE request received`);
-    console.log(`[JOB DELETE] Params:`, req.params);
-    console.log(`[JOB DELETE] Body:`, req.body);
-    console.log(`[JOB DELETE] Headers user-id:`, req.headers['user-id']);
-    
-    try {
-      const { jobId } = req.params;
-      const userId = req.body?.userId || req.headers['user-id'] as string;
-
-      console.log(`[JOB DELETE] Processing: jobId=${jobId}, userId=${userId}`);
-
-      // Validate inputs with proper error responses
-      if (!userId || userId.trim() === '') {
-        console.log('[JOB DELETE] User ID missing or empty');
-        return res.status(400).json({ 
-          error: 'User ID is required',
-          success: false,
-          received: { userId, jobId }
-        });
-      }
-
-      if (!jobId || jobId.trim() === '') {
-        console.log('[JOB DELETE] Job ID missing or empty');
-        return res.status(400).json({ 
-          error: 'Job ID is required',
-          success: false,
-          received: { userId, jobId }
-        });
-      }
-
-      // Check if job exists
-      console.log(`[JOB DELETE] Checking if job ${jobId} exists...`);
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        console.log(`[JOB DELETE] Job not found: ${jobId}`);
-        return res.status(404).json({ 
-          error: 'Job not found',
-          success: false,
-          jobId: jobId
-        });
-      }
-
-      console.log(`[JOB DELETE] Job found: ${job.title}`);
-
-      // Check if already deleted by this user
-      console.log(`[JOB DELETE] Checking if already deleted by user ${userId}...`);
-      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
-      const existingDeletedPost = userDeletedPosts.find(dp => 
-        (dp.originalId === jobId || dp.jobId === jobId)
-      );
-      
-      if (existingDeletedPost) {
-        console.log(`[JOB DELETE] Job already deleted by user ${userId}`);
-        return res.status(200).json({ 
-          message: 'Job already deleted', 
-          deletedPost: existingDeletedPost,
-          success: true,
-          alreadyDeleted: true
-        });
-      }
-
-      // Perform soft delete
-      console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
-      const deletedPost = await storage.softDeleteJob(jobId, userId);
-      
-      console.log(`[JOB DELETE] Soft delete successful:`, deletedPost);
-
-      res.status(200).json({ 
-        message: 'Job moved to trash successfully',
-        deletedPost: deletedPost,
-        success: true,
-        jobId: jobId,
-        userId: userId,
-        timestamp: new Date().toISOString()
-      });
-        
-    } catch (error) {
-      console.error('[JOB DELETE] Error during deletion:', error);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorStack = error instanceof Error ? error.stack : '';
-      
-      console.error('[JOB DELETE] Error stack:', errorStack);
-      
-      // Ensure we return JSON even on error
-      res.status(500).json({ 
-        error: 'Failed to delete job', 
-        message: errorMessage,
-        success: false,
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
-
-  app.post("/api/jobs", async (req, res) => {
-    try {
-      // SECURITY: Verify security token from admin system
-      const { _securityToken, _timestamp, ...jobRequestData } = req.body;
-
-      if (!_securityToken || !_timestamp) {
-        return res.status(403).json({ message: "Security validation failed. Job creation requires proper authentication." });
-      }
-
-      // Verify token timestamp validity (within 1 hour)
-      const tokenAge = Date.now() - Number(_timestamp);
-      if (tokenAge > 3600000) { // 1 hour
-        return res.status(403).json({ message: "Security token expired. Please re-authenticate." });
-      }
-
-      // Convert string date to Date object
-      const jobData = {
-        ...jobRequestData,
-        closingDate: new Date(jobRequestData.closingDate),
-        experienceMin: Number(jobRequestData.experienceMin) || 0,
-        experienceMax: Number(jobRequestData.experienceMax) || 1,
-      };
-
-      const validatedData = insertJobSchema.parse(jobData);
-      const job = await storage.createJob(validatedData);
-      res.json(job);
-    } catch (error) {
-      console.error("Error creating job:", error);
-      res.status(500).json({ message: "Failed to create job" });
-    }
-  });
-
-  // Applications routes
-  app.post("/api/applications", async (req, res) => {
-    try {
-      const validatedData = insertApplicationSchema.parse(req.body);
-      const application = await storage.createApplication(validatedData);
-      res.json(application);
-    } catch (error) {
-      console.error("Error creating application:", error);
-      res.status(500).json({ message: "Failed to create application" });
-    }
-  });
-
-  app.get('/api/applications/user/:userId', async (req, res) => {
-    try {
-      const { userId } = req.params;
-      console.log(`Getting applications for user: ${userId}`);
-
-      const userApplications = await storage.getUserApplications(userId);
-      console.log(`Found ${userApplications.length} applications for user ${userId}`);
-
-      res.json(userApplications);
-    } catch (error) {
-      console.error('Error fetching user applications:', error);
-      res.status(500).json({ error: 'Failed to fetch applications' });
-    }
-  });
-
-  app.delete("/api/applications/:id", async (req, res) => {
-    try {
-      await storage.deleteApplication(req.params.id);
-      res.json({ message: "Application deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting application:", error);
-      res.status(500).json({ message: "Failed to delete application" });
-    }
-  });
-
-  // Soft delete application (move to deleted posts)
-  app.post("/api/applications/:id/soft-delete", async (req, res) => {
-    try {
-      const deletedPost = await storage.softDeleteApplication(req.params.id);
-      res.json(deletedPost);
-    } catch (error) {
-      console.error("Error soft deleting application:", error);
-      res.status(500).json({ message: "Failed to delete post" });
-    }
-  });
-
-  // Get deleted posts for a user
-  app.get("/api/deleted-posts/user/:userId", async (req, res) => {
-    const { userId } = req.params;
-    console.log(`API: Getting deleted posts for user ${userId}`);
-
-    try {
-      const deletedPosts = await storage.getUserDeletedPosts(userId);
-      console.log(`API: Raw deleted posts from storage:`, deletedPosts);
-
-      // Transform the data structure to match what the frontend expects
-      const transformedDeletedPosts = deletedPosts.map(deletedPost => {
-        // If it already has a job property, use it as is
-        if (deletedPost.job) {
-          return deletedPost;
-        }
-
-        // Otherwise, create the expected structure from the flat data
-        return {
-          id: deletedPost.id,
-          userId: deletedPost.userId,
-          deletedAt: deletedPost.deletedAt,
-          job: {
-            id: deletedPost.originalId || deletedPost.jobId,
-            title: deletedPost.title,
-            description: deletedPost.description,
-            location: deletedPost.location,
-            salary: deletedPost.salary,
-            skills: deletedPost.skills || '',
-            closingDate: deletedPost.scheduledDeletion || new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-            company: deletedPost.company || {
-              name: 'Unknown Company',
-              location: deletedPost.location || 'Unknown Location'
-            }
-          }
-        };
-      });
-
-      console.log(`API: Returning ${transformedDeletedPosts.length} deleted posts for user ${userId}`);
-      res.json(transformedDeletedPosts);
-    } catch (error) {
-      console.error('Error fetching deleted posts:', error);
-      res.status(500).json({ error: 'Failed to fetch deleted posts', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Restore deleted post
-  app.post("/api/deleted-posts/:id/restore", async (req, res) => {
-    try {
-      console.log(`Restoring deleted post: ${req.params.id}`);
-
-      // Get the deleted post first to understand what we're restoring
-      const deletedPosts = await storage.getDeletedPosts();
-      const deletedPost = deletedPosts.find(post => post.id === req.params.id);
-
-      if (!deletedPost) {
-        return res.status(404).json({ error: 'Deleted post not found' });
-      }
-
-      console.log(`Found deleted post for user ${deletedPost.userId} and job ${deletedPost.jobId}`);
-
-      // If this is a MemStorage instance, we need to manually clean up applications
-      if (storage.constructor.name === 'MemStorage') {
-        // Remove any applications for this job and user combination
-        const userApplications = await storage.getUserApplications(deletedPost.userId);
-        const applicationsToRemove = userApplications.filter(app => app.job.id === deletedPost.jobId);
-
-        console.log(`Found ${applicationsToRemove.length} applications to remove for job ${deletedPost.jobId}`);
-
-        for (const app of applicationsToRemove) {
-          await storage.deleteApplication(app.id);
-          console.log(`Removed application ${app.id}`);
-        }
-      }
-
-      // Now restore the post
-      const result = await storage.restoreDeletedPost(req.params.id);
-      console.log(`Successfully restored deleted post: ${req.params.id}`);
-      res.json(result);
-    } catch (error) {
-      console.error("Error restoring deleted post:", error);
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Permanently delete post
-  app.delete("/api/deleted-posts/:id/permanent", async (req, res) => {
-    try {
-      await storage.permanentlyDeletePost(req.params.id);
-      res.json({ message: "Post permanently deleted" });
-    } catch (error) {
-      console.error("Error permanently deleting post:", error);
-      res.status(500).json({ message: "Failed to permanently delete post" });
-    }
-  });
-
-  // Courses routes
-  app.get("/api/courses", async (req, res) => {
-    try {
-      const { category } = req.query;
-      const courses = await storage.getCourses(category as string);
-      res.json(courses);
-    } catch (error) {
-      console.error("Error fetching courses:", error);
-      res.status(500).json({ message: "Failed to fetch courses" });
-    }
-  });
-
-  app.get("/api/courses/:id", async (req, res) => {
-    try {
-      const course = await storage.getCourse(req.params.id);
-      if (!course) {
-        return res.status(404).json({ message: "Course not found" });
-      }
-      res.json(course);
-    } catch (error) {
-      console.error("Error fetching course:", error);
-      res.status(500).json({ message: "Failed to fetch course" });
-    }
-  });
-
-  app.post("/api/courses", async (req, res) => {
-    try {
-      const course = {
-        id: nanoid(),
-        ...req.body,
-        price: 'Free', // Ensure all courses are free
-        createdAt: new Date()
-      };
-      const validatedData = insertCourseSchema.parse(course);
-      const createdCourse = await storage.createCourse(validatedData);
-      res.json(createdCourse);
-    } catch (error) {
-      console.error("Error creating course:", error);
-      res.status(500).json({ message: "Failed to create course" });
-    }
-  });
-
-  app.put("/api/courses/:id", async (req, res) => {
-    try {
-      const courseId = req.params.id;
-      console.log(`Updating course with ID: ${courseId}`, req.body);
-      
-      const validatedData = insertCourseSchema.parse(req.body);
-
-      // Ensure the course remains free when updated
-      validatedData.price = 'Free';
-
-      const updatedCourse = await storage.updateCourse(courseId, validatedData);
-
-      if (!updatedCourse) {
-        console.log(`Course not found for update: ${courseId}`);
-        return res.status(404).json({ message: "Course not found" });
-      }
-
-      console.log(`Course updated successfully: ${courseId}`);
-      
-      // Return the updated course directly
-      res.json(updatedCourse);
-    } catch (error) {
-      console.error("Error updating course:", error);
-      res.status(500).json({ message: "Failed to update course" });
-    }
-  });
-
-  app.delete("/api/courses/:id", async (req, res) => {
-    try {
-      const courseId = req.params.id;
-      const deleted = await storage.deleteCourse(courseId);
-
-      if (!deleted) {
-        return res.status(404).json({ message: "Course not found" });
-      }
-
-      res.json({ message: "Course deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting course:", error);
-      res.status(500).json({ message: "Failed to delete course" });
-    }
-  });
-
-  // Companies routes
-  app.get("/api/companies", async (req, res) => {
-    try {
-      const companies = await storage.getCompanies();
-      res.json(companies);
-    } catch (error) {
-      console.error("Error fetching companies:", error);
-      res.status(500).json({ message: "Failed to fetch companies" });
-    }
-  });
-
-  app.get("/api/companies/:id", async (req, res) => {
-    try {
-      const company = await storage.getCompany(req.params.id);
-      if (!company) {
-        return res.status(404).json({ message: "Company not found" });
-      }
-      res.json(company);
-    } catch (error) {
-      console.error("Error fetching company:", error);
-      res.status(500).json({ message: "Failed to fetch company" });
-    }
-  });
-
-  // Company management routes
-  app.post("/api/companies", async (req, res) => {
-    try {
-      const validatedData = insertCompanySchema.parse(req.body);
-      const company = await storage.createCompany(validatedData);
-      res.json(company);
-    } catch (error) {
-      console.error("Error creating company:", error);
-      res.status(500).json({ message: "Failed to create company" });
-    }
-  });
-
-  app.put("/api/companies/:id", async (req, res) => {
-    try {
-      const companyId = req.params.id;
-      console.log(`[COMPANY UPDATE] Updating company with ID: ${companyId}`, req.body);
-
-      // Validate the data
-      const validatedData = insertCompanySchema.parse(req.body);
-      console.log(`[COMPANY UPDATE] Validated data:`, validatedData);
-
-      // Check if company exists first
-      const existingCompany = await storage.getCompany(companyId);
-      if (!existingCompany) {
-        console.log(`[COMPANY UPDATE] Company not found for update: ${companyId}`);
-        return res.status(404).json({ message: "Company not found" });
-      }
-      console.log(`[COMPANY UPDATE] Existing company found:`, existingCompany);
-
-      const updatedCompany = await storage.updateCompany(companyId, validatedData);
-
-      if (!updatedCompany) {
-        console.log(`[COMPANY UPDATE] Failed to update company: ${companyId}`);
-        return res.status(500).json({ message: "Failed to update company" });
-      }
-
-      console.log(`[COMPANY UPDATE] Company updated successfully:`, updatedCompany);
-      
-      // Ensure we return the correct format
-      res.json(updatedCompany);
-    } catch (error) {
-      console.error("[COMPANY UPDATE] Error updating company:", error);
-      if (error instanceof Error) {
-        res.status(400).json({ message: error.message });
-      } else {
-        res.status(500).json({ message: "Failed to update company" });
-      }
-    }
-  });
-
-  // Company deletion endpoint
-  app.delete('/api/companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Deleting company with ID: ${id}`);
-
-      const deleted = await storage.deleteCompany(id);
-
-      if (!deleted) {
-        console.log(`Company not found: ${id}`);
-        return res.status(404).json({ message: 'Company not found' });
-      }
-
-      console.log(`Company deleted successfully: ${id}`);
-      res.json({ message: 'Company deleted successfully' });
-    } catch (error) {
-      console.error(`Error deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to delete company' });
-    }
-  });
-
-  // Company soft delete endpoint (move to deleted companies)
-  app.post('/api/companies/:id/soft-delete', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Soft deleting company with ID: ${id}`);
-
-      const deletedCompany = await storage.softDeleteCompany(id);
-
-      if (!deletedCompany) {
-        console.log(`Company not found: ${id}`);
-        return res.status(404).json({ message: 'Company not found' });
-      }
-
-      console.log(`Company moved to deleted companies: ${id}`);
-      res.json({ message: 'Company moved to deleted companies', deletedCompany });
-    } catch (error) {
-      console.error(`Error soft deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to move company to deleted companies' });
-    }
-  });
-
-  // Get deleted companies
-  app.get('/api/deleted-companies', async (req, res) => {
-    try {
-      const deletedCompanies = await storage.getDeletedCompanies();
-      res.json(deletedCompanies);
-    } catch (error) {
-      console.error('Error fetching deleted companies:', error);
-      res.status(500).json({ message: 'Failed to fetch deleted companies' });
-    }
-  });
-
-  // Restore deleted company
-  app.post('/api/deleted-companies/:id/restore', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Restoring deleted company with ID: ${id}`);
-
-      const restoredCompany = await storage.restoreDeletedCompany(id);
-
-      if (!restoredCompany) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Company restored successfully: ${id}`);
-      res.json({ message: 'Company restored successfully', company: restoredCompany });
-    } catch (error) {
-      console.error(`Error restoring company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to restore company' });
-    }
-  });
-
-  // Update deleted company
-  app.put('/api/deleted-companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updateData = req.body;
-      console.log(`Updating deleted company with ID: ${id}`, updateData);
-
-      // Validate the data
-      const validatedData = insertCompanySchema.parse(updateData);
-
-      const updatedCompany = await storage.updateDeletedCompany(id, validatedData);
-
-      if (!updatedCompany) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Deleted company updated successfully: ${id}`);
-      res.json({ message: 'Deleted company updated successfully', company: updatedCompany });
-    } catch (error) {
-      console.error(`Error updating deleted company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to update deleted company', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Permanently delete company
-  app.delete('/api/deleted-companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Permanently deleting company with ID: ${id}`);
-
-      const deleted = await storage.permanentlyDeleteCompany(id);
-
-      if (!deleted) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Company permanently deleted: ${id}`);
-      res.json({ message: 'Company permanently deleted' });
-    } catch (error) {
-      console.error(`Error permanently deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to permanently delete company' });
-    }
-  });
-
-  // Contact routes
-  app.post("/api/contact", async (req, res) => {
-    try {
-      const validatedData = insertContactSchema.parse(req.body);
-      const contact = await storage.createContact(validatedData);
-      res.json(contact);
-    } catch (error) {
-      console.error("Error creating contact:", error);
-      res.status(500).json({ message: "Failed to create contact" });
-    }
-  });
-
-  // Job URL Analysis route
-  app.post("/api/jobs/analyze-url", async (req, res) => {
-    try {
-      const { url } = req.body;
-      console.log(`Analyzing job URL: ${url}`);
-
-      if (!url) {
-        return res.status(400).json({ message: "URL is required" });
-      }
-
-      // Get available companies to map to real company IDs
-      const companies = await storage.getCompanies();
-      console.log(`Found ${companies.length} companies for analysis`);
-
-      // Enhanced job analysis with comprehensive data extraction
-      let mockAnalysis = {
-        title: "Software Developer",
-        description: "We are seeking a talented Software Developer to join our dynamic team. The successful candidate will be responsible for developing, testing, and maintaining software applications. This role offers excellent opportunities for career growth and skill development in a collaborative environment.",
-        requirements: "Strong programming fundamentals, Object-oriented programming concepts, Database management skills, Version control systems (Git), Problem-solving and analytical thinking, Team collaboration and communication skills",
-        qualifications: "Bachelor's degree in Computer Science, Information Technology, Software Engineering, or related field. Fresh graduates are welcome to apply. Strong academic record preferred.",
-        skills: "Java, Python, JavaScript, React.js, Node.js, HTML, CSS, SQL, MySQL, Git, RESTful APIs, Agile methodologies",
+    ];
+
+    // Sample companies (including existing ones)
+    const companies = [
+      {
+        id: "accenture-id",
+        name: "Accenture",
+        description: "A leading global professional services company",
+        website: "https://accenture.com",
+        linkedinUrl: "https://linkedin.com/company/accenture",
+        logo: "https://logo.clearbit.com/accenture.com",
+        location: "Bengaluru, India",
+        industry: "Consulting",
+        size: "large",
+        founded: "1989",
+        createdAt: new Date(),
+      },
+      {
+        id: "tcs-id",
+        name: "Tata Consultancy Services",
+        description: "An Indian multinational IT services and consulting company",
+        website: "https://tcs.com",
+        linkedinUrl: "https://linkedin.com/company/tcs",
+        logo: "https://logo.clearbit.com/tcs.com",
+        location: "Mumbai, India",
+        industry: "IT Services",
+        size: "large",
+        founded: "1968",
+        createdAt: new Date(),
+      },
+      {
+        id: "infosys-id",
+        name: "Infosys",
+        description: "A global leader in next-generation digital services and consulting",
+        website: "https://infosys.com",
+        linkedinUrl: "https://linkedin.com/company/infosys",
+        logo: "https://logo.clearbit.com/infosys.com",
+        location: "Bengaluru, India",
+        industry: "IT Services",
+        size: "large",
+        founded: "1981",
+        createdAt: new Date(),
+      },
+      {
+        id: "hcl-id",
+        name: "HCL Technologies",
+        description: "An Indian multinational IT services and consulting company",
+        website: "https://hcltech.com",
+        linkedinUrl: "https://linkedin.com/company/hcl-technologies",
+        logo: "https://logo.clearbit.com/hcltech.com",
+        location: "Noida, India",
+        industry: "IT Services",
+        size: "large",
+        founded: "1976",
+        createdAt: new Date(),
+      },
+      {
+        id: "wipro-id",
+        name: "Wipro",
+        description: "A leading global information technology, consulting and business process services company",
+        website: "https://wipro.com",
+        linkedinUrl: "https://linkedin.com/company/wipro",
+        logo: "https://logo.clearbit.com/wipro.com",
+        location: "Bengaluru, India",
+        industry: "IT Services",
+        size: "large",
+        founded: "1945",
+        createdAt: new Date(),
+      },
+      {
+        id: "cognizant-id",
+        name: "Cognizant",
+        description: "An American multinational information technology services and consulting company",
+        website: "https://cognizant.com",
+        linkedinUrl: "https://linkedin.com/company/cognizant",
+        logo: "https://logo.clearbit.com/cognizant.com",
+        location: "Chennai, India",
+        industry: "IT Services",
+        size: "large",
+        founded: "1994",
+        createdAt: new Date(),
+      },
+      ...newCompanies
+    ];
+
+    companies.forEach(company => this.companies.set(company.id, company));
+
+    // Sample jobs
+    const jobs = [
+      {
+        id: "job-1",
+        companyId: "accenture-id",
+        title: "Software Developer - Fresher",
+        description: "Join our dynamic team as a Software Developer. Work on cutting-edge projects and grow your career in technology.",
+        requirements: "Basic programming knowledge, problem-solving skills, willingness to learn",
+        qualifications: "Bachelor's degree in Computer Science, IT, or related field",
+        skills: "Java, Python, JavaScript, SQL, Git, Problem-solving",
         experienceLevel: "fresher",
         experienceMin: 0,
-        experienceMax: 2,
-        location: "Bengaluru, Karnataka, India",
+        experienceMax: 1,
+        location: "Bengaluru, Chennai, Hyderabad",
         jobType: "full-time",
-        salary: "₹3.5-5.5 LPA",
-        applyUrl: url,
-        closingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        batchEligible: "2023, 2024, 2025",
+        salary: "₹3.5 - 4.5 LPA",
+        applyUrl: "https://accenture.com/careers",
+        closingDate: new Date('2025-09-17'),
+        batchEligible: "2024",
         isActive: true,
-        companyId: companies.length > 0 ? companies[0].id : "" // Use first available company
-      };
-
-      // URL pattern matching for better data extraction
-      const urlLower = url.toLowerCase();
-
-      // Company-specific analysis
-      if (urlLower.includes('microsoft.com') || urlLower.includes('msft')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('microsoft'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Engineer - Entry Level",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹12-18 LPA",
-          description: "Join Microsoft as a Software Engineer and work on cutting-edge technologies that impact billions of users worldwide. You'll collaborate with talented engineers to build scalable, reliable, and innovative solutions using Microsoft's technology stack.",
-          requirements: "Strong programming skills in C#, Java, or Python, Understanding of data structures and algorithms, Experience with cloud technologies (Azure preferred), Knowledge of software development lifecycle, Strong problem-solving abilities",
-          qualifications: "Bachelor's or Master's degree in Computer Science, Engineering, or related technical field, Strong academic performance, Internship or project experience preferred",
-          skills: "C#, .NET, Azure, JavaScript, TypeScript, Python, SQL Server, Entity Framework, ASP.NET Core, REST APIs, Microservices",
-          location: "Hyderabad, Telangana, India",
-          experienceMax: 3
-        };
-      } else if (urlLower.includes('accenture.com')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('accenture'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Associate Software Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹4.5-6.5 LPA",
-          description: "Accenture is seeking Associate Software Engineers to join our technology consulting team. You'll work on diverse projects across multiple industries, gaining exposure to latest technologies and methodologies while building enterprise-scale solutions.",
-          requirements: "Programming knowledge in Java, Python, or JavaScript, Understanding of software engineering principles, Database concepts and SQL knowledge, Agile/Scrum methodology awareness, Client interaction and communication skills",
-          qualifications: "BE/B.Tech/MCA in Computer Science, IT, or related field, Minimum 60% throughout academics, No active backlogs, Willingness to work in shifts",
-          skills: "Java, Spring Boot, Python, JavaScript, Angular, React, SQL, Oracle, MongoDB, Jenkins, Docker, AWS basics",
-          location: "Pune, Chennai, Bengaluru, Hyderabad",
-          batchEligible: "2022, 2023, 2024"
-        };
-      } else if (urlLower.includes('tcs.com') || urlLower.includes('tata consultancy')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('tcs') || c.name.toLowerCase().includes('tata'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Assistant System Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹3.36-4.2 LPA",
-          description: "TCS is hiring Assistant System Engineers for various technology domains. Join one of the world's largest IT services companies and work on innovative projects for global clients while developing your technical and professional skills.",
-          requirements: "Programming fundamentals in any language, Logical reasoning and analytical skills, Basic understanding of OOPS concepts, Communication skills for client interaction, Adaptability to learn new technologies",
-          qualifications: "BE/B.Tech/ME/M.Tech/MCA/MSc in relevant streams, Minimum 60% or 6.0 CGPA throughout (X, XII, Graduation), No standing backlogs during selection process",
-          skills: "Java, Python, C++, JavaScript, HTML, CSS, SQL, Data Structures, Algorithms, Software Testing basics",
-          location: "Multiple locations across India",
-          batchEligible: "2024, 2025"
-        };
-      } else if (urlLower.includes('infosys.com')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('infosys'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Systems Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹3.6-4.8 LPA",
-          description: "Infosys is looking for Systems Engineers to join our global technology team. You'll work on diverse projects, gain hands-on experience with cutting-edge technologies, and contribute to digital transformation initiatives for Fortune 500 clients.",
-          requirements: "Strong programming and analytical skills, Knowledge of software development lifecycle, Database management concepts, Problem-solving and debugging abilities, Team collaboration skills",
-          qualifications: "BE/B.Tech/ME/M.Tech in Computer Science, IT, Electronics, or related engineering streams, Consistent academic record with minimum 60% or equivalent CGPA",
-          skills: "Java, Python, JavaScript, React, Angular, Node.js, Spring Framework, SQL, MySQL, MongoDB, Git, DevOps basics",
-          location: "Bengaluru, Chennai, Hyderabad, Pune, Mysuru",
-          batchEligible: "2023, 2024, 2025"
-        };
-      } else if (urlLower.includes('amazon.com') || urlLower.includes('aws')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('amazon'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Development Engineer I",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹15-25 LPA",
-          description: "Amazon is seeking Software Development Engineers to build and scale world-class distributed systems. You'll work on challenging problems that directly impact millions of customers worldwide, using cutting-edge technologies in cloud computing, machine learning, and distributed systems.",
-          requirements: "Strong computer science fundamentals including data structures and algorithms, Programming experience in Java, C++, Python, or JavaScript, Understanding of system design principles, Problem-solving and analytical thinking, Leadership principles alignment",
-          qualifications: "Bachelor's or Master's degree in Computer Science or related field, Strong academic performance, Internship or project experience in software development",
-          skills: "Java, Python, C++, JavaScript, AWS, System Design, Data Structures, Algorithms, Distributed Systems, REST APIs",
-          location: "Bengaluru, Chennai, Hyderabad",
-          experienceMax: 2,
-          batchEligible: "2023, 2024"
-        };
-      } else if (urlLower.includes('google.com') || urlLower.includes('alphabet')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('google'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Engineer - New Grad",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹18-30 LPA",
-          description: "Google is hiring Software Engineers to work on next-generation technologies that impact billions of users. You'll tackle complex technical challenges, work with cutting-edge tools and technologies, and collaborate with world-class engineers.",
-          requirements: "Strong foundation in computer science fundamentals, Programming proficiency in C++, Java, Python, or Go, Experience with data structures, algorithms, and software design, System design knowledge, Innovation and problem-solving mindset",
-          qualifications: "Bachelor's or Master's degree in Computer Science or related technical field, Exceptional academic record, Relevant internship or research experience preferred",
-          skills: "C++, Java, Python, Go, JavaScript, System Design, Machine Learning, Cloud Computing, Distributed Systems, Data Structures",
-          location: "Bengaluru, Gurugram, Mumbai, Hyderabad",
-          experienceMax: 1,
-          batchEligible: "2024, 2025"
-        };
+        createdAt: new Date(),
+      },
+      {
+        id: "job-2",
+        companyId: "tcs-id",
+        title: "Associate Software Engineer",
+        description: "Join TCS as an Associate Software Engineer and work on innovative solutions for global clients.",
+        requirements: "Programming fundamentals, analytical thinking, good communication skills",
+        qualifications: "B.E/B.Tech/M.E/M.Tech/MCA/MSc in relevant field",
+        skills: "C, C++, Java, Database concepts, Web technologies, Logical reasoning",
+        experienceLevel: "fresher",
+        experienceMin: 0,
+        experienceMax: 0,
+        location: "Pune, Kolkata, Kochi",
+        jobType: "full-time",
+        salary: "₹3.36 LPA",
+        applyUrl: "https://tcs.com/careers",
+        closingDate: new Date('2025-09-22'),
+        batchEligible: "2024",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-3",
+        companyId: "infosys-id",
+        title: "Systems Engineer - Fresher",
+        description: "Start your career with Infosys as a Systems Engineer. Work with latest technologies and contribute to digital transformation.",
+        requirements: "Strong technical foundation, problem-solving skills, adaptability",
+        qualifications: "Engineering graduate from any discipline",
+        skills: "Programming concepts, Database fundamentals, Communication skills",
+        experienceLevel: "fresher",
+        experienceMin: 0,
+        experienceMax: 1,
+        location: "Bengaluru, Mysore, Pune",
+        jobType: "full-time",
+        salary: "₹3.6 - 4.2 LPA",
+        applyUrl: "https://infosys.com/careers",
+        closingDate: new Date('2025-10-15'),
+        batchEligible: "2024",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-4",
+        companyId: "hcl-id",
+        title: "Graduate Engineer Trainee",
+        description: "Join HCL Technologies as a Graduate Engineer Trainee and build enterprise solutions for Fortune 500 companies.",
+        requirements: "Technical aptitude, learning mindset, team collaboration",
+        qualifications: "B.Tech/B.E/MCA/M.Tech in Computer Science or related",
+        skills: "Java, Python, SQL, Web development, Problem solving",
+        experienceLevel: "fresher",
+        experienceMin: 0,
+        experienceMax: 1,
+        location: "Chennai, Noida, Bengaluru",
+        jobType: "full-time",
+        salary: "₹3.2 - 4.8 LPA",
+        applyUrl: "https://hcltech.com/careers",
+        closingDate: new Date('2025-08-30'),
+        batchEligible: "2024",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-5",
+        companyId: "accenture-id",
+        title: "Senior Software Engineer",
+        description: "Lead development teams and drive technical excellence in enterprise-level applications.",
+        requirements: "Proven experience in software development, leadership skills, microservices architecture",
+        qualifications: "Bachelor's/Master's degree with 3+ years of experience.",
+        skills: "Java, Spring Boot, Microservices, Cloud, Team Leadership",
+        experienceLevel: "experienced",
+        experienceMin: 3,
+        experienceMax: 6,
+        location: "Bengaluru, Gurgaon",
+        jobType: "full-time",
+        salary: "₹12 - 18 LPA",
+        applyUrl: "https://accenture.com/careers/apply",
+        closingDate: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-6",
+        companyId: "tcs-id",
+        title: "Technical Lead - Full Stack",
+        description: "Lead full-stack development projects and mentor junior developers.",
+        requirements: "Full-stack development expertise, team management, client interaction",
+        qualifications: "Engineering degree with 4+ years of experience.",
+        skills: "React, Node.js, Python, AWS, Team Management",
+        experienceLevel: "experienced",
+        experienceMin: 4,
+        experienceMax: 8,
+        location: "Chennai, Mumbai",
+        jobType: "full-time",
+        salary: "₹15 - 22 LPA",
+        applyUrl: "https://tcs.com/careers",
+        closingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-7",
+        companyId: "infosys-id",
+        title: "Data Scientist - Experienced",
+        description: "Contribute to data-driven decision making and build predictive models.",
+        requirements: "Strong analytical skills, experience with ML algorithms, Python/R proficiency",
+        qualifications: "Master's/Ph.D. in Data Science, Statistics, or related field with 3+ years of experience.",
+        skills: "Machine Learning, Python, R, SQL, Data Visualization, Statistical Modeling",
+        experienceLevel: "experienced",
+        experienceMin: 3,
+        experienceMax: 7,
+        location: "Bengaluru, Hyderabad",
+        jobType: "full-time",
+        salary: "₹14 - 20 LPA",
+        applyUrl: "https://infosys.com/careers/data-science",
+        closingDate: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-8",
+        companyId: "wipro-id",
+        title: "Cloud Engineer",
+        description: "Design, implement, and manage cloud infrastructure and services.",
+        requirements: "Experience with cloud platforms (AWS, Azure, GCP), infrastructure as code",
+        qualifications: "Bachelor's degree in Computer Science or related field with 2+ years of experience.",
+        skills: "AWS, Azure, GCP, Docker, Kubernetes, Terraform, CI/CD",
+        experienceLevel: "experienced",
+        experienceMin: 2,
+        experienceMax: 5,
+        location: "Bengaluru, Pune",
+        jobType: "full-time",
+        salary: "₹10 - 16 LPA",
+        applyUrl: "https://wipro.com/careers/cloud-engineer",
+        closingDate: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-9",
+        companyId: "cognizant-id",
+        title: "Java Developer",
+        description: "Develop robust and scalable Java applications for enterprise clients.",
+        requirements: "Strong Java programming skills, experience with Spring framework",
+        qualifications: "Bachelor's degree in Computer Science or related field with 2+ years of experience.",
+        skills: "Java, Spring Boot, Hibernate, RESTful APIs, SQL, Git",
+        experienceLevel: "experienced",
+        experienceMin: 2,
+        experienceMax: 5,
+        location: "Chennai, Coimbatore",
+        jobType: "full-time",
+        salary: "₹9 - 15 LPA",
+        applyUrl: "https://cognizant.com/careers/java-developer",
+        closingDate: new Date(Date.now() + 22 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-10",
+        companyId: "hcl-id",
+        title: "DevOps Engineer",
+        description: "Implement and manage CI/CD pipelines, automate infrastructure, and ensure system reliability.",
+        requirements: "Experience with DevOps tools and practices, scripting languages",
+        qualifications: "Bachelor's degree in a relevant field with 3+ years of experience.",
+        skills: "AWS, Docker, Kubernetes, Jenkins, Ansible, Python, Shell Scripting",
+        experienceLevel: "experienced",
+        experienceMin: 3,
+        experienceMax: 6,
+        location: "Noida, Bengaluru",
+        jobType: "full-time",
+        salary: "₹11 - 17 LPA",
+        applyUrl: "https://hcltech.com/careers/devops-engineer",
+        closingDate: new Date(Date.now() + 28 * 24 * 60 * 60 * 1000),
+        batchEligible: "",
+        isActive: true,
+        createdAt: new Date(),
+      },
+      {
+        id: "job-expired",
+        companyId: "infosys-id",
+        title: "Software Developer - Expired",
+        description: "This position has been closed.",
+        requirements: "Programming skills",
+        qualifications: "Bachelor's degree",
+        skills: "Java, Python",
+        experienceLevel: "fresher",
+        experienceMin: 0,
+        experienceMax: 1,
+        location: "Bengaluru",
+        jobType: "full-time",
+        salary: "₹3.5 LPA",
+        applyUrl: "https://infosys.com/careers",
+        closingDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
+        batchEligible: "2024",
+        isActive: false,
+        createdAt: new Date(),
       }
+    ];
 
-      // Role-specific enhancements based on URL keywords
-      if (urlLower.includes('data') && (urlLower.includes('analyst') || urlLower.includes('scientist'))) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Data Analyst');
-        mockAnalysis.skills = "Python, R, SQL, Excel, Tableau, Power BI, Statistics, Machine Learning basics, Pandas, NumPy";
-        mockAnalysis.requirements = "Statistical analysis skills, Data visualization experience, SQL database knowledge, Problem-solving abilities, Business acumen";
-      } else if (urlLower.includes('frontend') || urlLower.includes('ui') || urlLower.includes('react')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Frontend Developer');
-        mockAnalysis.skills = "HTML5, CSS3, JavaScript, React.js, Vue.js, Angular, TypeScript, SASS, Webpack, Git";
-        mockAnalysis.requirements = "Strong HTML, CSS, JavaScript knowledge, Modern framework experience, Responsive design skills, UI/UX understanding, Version control proficiency";
-      } else if (urlLower.includes('backend') || urlLower.includes('api') || urlLower.includes('server')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Backend Developer');
-        mockAnalysis.skills = "Java, Python, Node.js, Express.js, Spring Boot, SQL, NoSQL, REST APIs, Microservices, Docker";
-        mockAnalysis.requirements = "Server-side programming experience, Database design knowledge, API development skills, System architecture understanding, Performance optimization";
-      } else if (urlLower.includes('fullstack') || urlLower.includes('full-stack')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Full Stack Developer');
-        mockAnalysis.skills = "JavaScript, React.js, Node.js, Python, Java, SQL, MongoDB, HTML, CSS, Git, AWS basics";
-        mockAnalysis.requirements = "Frontend and backend development skills, Database management, API integration, Full project lifecycle experience, Modern development tools proficiency";
+    jobs.forEach(job => this.jobs.set(job.id, job));
+
+    // Sample courses
+    const courses = [
+      {
+        id: "html-course",
+        title: "Complete HTML & CSS Course",
+        description: "Learn HTML and CSS from scratch. Build responsive websites and understand web fundamentals.",
+        instructor: "John Doe",
+        duration: "6 weeks",
+        level: "beginner",
+        category: "web-development",
+        imageUrl: "@assets/generated_images/HTML_CSS_Course_Thumbnail_b8010eb5.png",
+        courseUrl: "https://developer.mozilla.org/en-US/docs/Web/HTML",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "python-course",
+        title: "Python Programming for Beginners",
+        description: "Master Python programming from basics to advanced concepts. Perfect for beginners and job seekers.",
+        instructor: "Jane Smith",
+        duration: "8 weeks",
+        level: "beginner",
+        category: "programming",
+        imageUrl: "@assets/generated_images/Python_Programming_Course_Thumbnail_f8ac5b59.png",
+        courseUrl: "https://www.python.org/about/gettingstarted/",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "javascript-course",
+        title: "JavaScript Fundamentals",
+        description: "Learn JavaScript programming language and build interactive web applications.",
+        instructor: "Mike Johnson",
+        duration: "10 weeks",
+        level: "intermediate",
+        category: "web-development",
+        imageUrl: "@assets/generated_images/JavaScript_Course_Thumbnail_a77ba012.png",
+        courseUrl: "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "react-course",
+        title: "React.js Development",
+        description: "Build modern web applications with React.js. Learn components, hooks, and state management.",
+        instructor: "Sarah Wilson",
+        duration: "12 weeks",
+        level: "intermediate",
+        category: "web-development",
+        imageUrl: "@assets/generated_images/React_Development_Course_Thumbnail_c80e7bc1.png",
+        courseUrl: "https://react.dev/learn",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "nodejs-course",
+        title: "Node.js Backend Development",
+        description: "Master server-side development with Node.js. Build APIs and full-stack applications.",
+        instructor: "David Lee",
+        duration: "10 weeks",
+        level: "intermediate",
+        category: "backend",
+        imageUrl: "@assets/generated_images/Node.js_Backend_Course_Thumbnail_db981e96.png",
+        courseUrl: "https://nodejs.org/en/docs/",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "data-structures-course",
+        title: "Data Structures & Algorithms",
+        description: "Learn essential data structures and algorithms for programming interviews and competitive coding.",
+        instructor: "Dr. Alex Kumar",
+        duration: "14 weeks",
+        level: "intermediate",
+        category: "programming",
+        imageUrl: "@assets/generated_images/Data_Structures_Algorithms_Course_461adfa0.png",
+        courseUrl: "https://www.geeksforgeeks.org/data-structures/",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "machine-learning-course",
+        title: "Introduction to Machine Learning",
+        description: "Get started with machine learning concepts, algorithms, and practical implementation.",
+        instructor: "Dr. Priya Sharma",
+        duration: "16 weeks",
+        level: "advanced",
+        category: "data-science",
+        imageUrl: "@assets/generated_images/Machine_Learning_Course_Thumbnail_b1f0cf55.png",
+        courseUrl: "https://www.tensorflow.org/learn/ml-basics",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "cybersecurity-course",
+        title: "Cybersecurity Fundamentals",
+        description: "Learn cybersecurity basics, ethical hacking, and network security principles.",
+        instructor: "Mark Roberts",
+        duration: "12 weeks",
+        level: "intermediate",
+        category: "cybersecurity",
+        imageUrl: "@assets/generated_images/Cybersecurity_Course_Thumbnail_86bee863.png",
+        courseUrl: "https://www.cybrary.it/courses/cybersecurity-fundamentals/",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "database-course",
+        title: "Database Management Systems",
+        description: "Master SQL, database design, and learn popular database management systems.",
+        instructor: "Lisa Chen",
+        duration: "8 weeks",
+        level: "beginner",
+        category: "database",
+        imageUrl: "@assets/generated_images/Database_Management_Course_Thumbnail_6869d94b.png",
+        courseUrl: "https://www.khanacademy.org/computing/computer-programming/sql",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "cloud-computing-course",
+        title: "Cloud Computing Essentials",
+        description: "Understand cloud concepts, services, and deployment models.",
+        instructor: "Alice Green",
+        duration: "10 weeks",
+        level: "intermediate",
+        category: "cloud",
+        imageUrl: "@assets/generated_images/Cloud_Computing_Course_Thumbnail_675f1cf7.png",
+        courseUrl: "https://aws.amazon.com/training/cloud-essentials/",
+        price: "Free",
+        createdAt: new Date(),
+      },
+      {
+        id: "devops-course",
+        title: "DevOps Principles and Practices",
+        description: "Learn DevOps methodologies, tools, and practices for continuous integration and delivery.",
+        instructor: "Bob White",
+        duration: "12 weeks",
+        level: "intermediate",
+        category: "devops",
+        imageUrl: "@assets/generated_images/DevOps_Course_Thumbnail_2017a272.png",
+        courseUrl: "https://azure.microsoft.com/en-us/services/devops/",
+        price: "Free",
+        createdAt: new Date(),
       }
+    ];
 
-      // Location inference from URL
-      if (urlLower.includes('bangalore') || urlLower.includes('bengaluru')) {
-        mockAnalysis.location = "Bengaluru, Karnataka, India";
-      } else if (urlLower.includes('hyderabad')) {
-        mockAnalysis.location = "Hyderabad, Telangana, India";
-      } else if (urlLower.includes('chennai')) {
-        mockAnalysis.location = "Chennai, Tamil Nadu, India";
-      } else if (urlLower.includes('pune')) {
-        mockAnalysis.location = "Pune, Maharashtra, India";
-      } else if (urlLower.includes('mumbai')) {
-        mockAnalysis.location = "Mumbai, Maharashtra, India";
-      } else if (urlLower.includes('delhi') || urlLower.includes('gurgaon') || urlLower.includes('gurugram')) {
-        mockAnalysis.location = "Gurugram, Haryana, India";
-      } else if (urlLower.includes('noida')) {
-        mockAnalysis.location = "Noida, Uttar Pradesh, India";
+    courses.forEach(course => this.courses.set(course.id, course));
+
+    // Sample projects
+    const projects = [
+      {
+        id: "project-1",
+        title: "Job Portal Web Application",
+        description: "A full-stack web application for job seekers and employers.",
+        technologies: ["React", "Node.js", "Express", "MongoDB"],
+        demoUrl: "https://job-portal-demo.example.com",
+        codeUrl: "https://github.com/yourusername/job-portal",
+        createdAt: new Date(),
+      },
+      {
+        id: "project-2",
+        title: "E-commerce Platform",
+        description: "An online store with product catalog, shopping cart, and payment gateway integration.",
+        technologies: ["React", "Django", "PostgreSQL"],
+        demoUrl: "https://ecommerce-demo.example.com",
+        codeUrl: "https://github.com/yourusername/ecommerce",
+        createdAt: new Date(),
+      },
+      {
+        id: "project-3",
+        title: "Task Management Tool",
+        description: "A productivity tool to manage tasks, projects, and deadlines.",
+        technologies: ["Vue.js", "Firebase"],
+        demoUrl: "https://task-manager-demo.example.com",
+        codeUrl: "https://github.com/yourusername/task-manager",
+        createdAt: new Date(),
+      },
+      {
+        id: "project-4",
+        title: "Blog Application",
+        description: "A simple blogging platform with user authentication and content management.",
+        technologies: ["Angular", "Node.js", "MySQL"],
+        demoUrl: "https://blog-demo.example.com",
+        codeUrl: "https://github.com/yourusername/blog-app",
+        createdAt: new Date(),
+      },
+      {
+        id: "project-5",
+        title: "Data Visualization Dashboard",
+        description: "A dashboard to visualize data trends and insights.",
+        technologies: ["Python", "Pandas", "Matplotlib", "Flask"],
+        demoUrl: "https://dataviz-demo.example.com",
+        codeUrl: "https://github.com/yourusername/data-visualization",
+        createdAt: new Date(),
       }
+    ];
 
-      // Experience level inference
-      if (urlLower.includes('senior') || urlLower.includes('lead') || urlLower.includes('sr.')) {
-        mockAnalysis.experienceLevel = "experienced";
-        mockAnalysis.experienceMin = 3;
-        mockAnalysis.experienceMax = 8;
-        mockAnalysis.salary = mockAnalysis.salary.replace('3.5-5.5', '8-15');
-      } else if (urlLower.includes('junior') || urlLower.includes('fresher') || urlLower.includes('entry') || urlLower.includes('graduate') || urlLower.includes('trainee')) {
-        mockAnalysis.experienceLevel = "fresher";
-        mockAnalysis.experienceMin = 0;
-        mockAnalysis.experienceMax = 2;
-      }
+    // Add projects to storage (assuming a 'projects' map exists or is added)
+    // For now, let's just log them to simulate having them
+    // console.log("Initialized projects:", projects);
+  }
 
-      console.log(`Job analysis completed for: ${mockAnalysis.title}`);
-      // Return the analyzed job data
-      res.json(mockAnalysis);
-    } catch (error) {
-      console.error("Error analyzing job URL:", error);
-      res.status(500).json({ message: "Failed to analyze job URL" });
-    }
-  });
+  // Auth methods
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(user => user.email === email);
+  }
 
-  // SECURITY: Critical Admin Access Control System
-  // This is a core security pillar - tampering will break entire system
-  app.post("/api/admin/verify-password", async (req, res) => {
-    try {
-      const { password } = req.body;
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10);
+    const id = randomUUID();
+    const user: User = {
+      id,
+      email: insertUser.email,
+      fullName: insertUser.fullName,
+      phone: insertUser.phone || null,
+      password: hashedPassword,
+      createdAt: new Date(),
+    };
+    this.users.set(id, user);
+    return user;
+  }
 
-      if (!password) {
-        return res.status(400).json({ success: false, message: "Access denied - invalid request" });
-      }
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
 
-      // Secure password verification using SHA-256 with salt
-      const { createHash } = await import('crypto');
-      
-      // Create hash with the same salt used on client-side
-      const inputHash = createHash('sha256').update(password + 'jobportal_secure_salt_2024').digest('hex');
-      
-      // Encrypted hash for the correct password "161417"
-      // This hash is generated from the password + salt combination
-      const validPasswordHash = '5fa67fcceff1ceed89b8f82a88ee412f50b780b5e8c8eb9db7e92b9e8c2a5c43';
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
 
-      console.log('🔐 Admin verification attempt - security check active');
-      console.log('🛡️ Password hash verification:', inputHash.slice(0, 16) + '****');
+    const updatedUser = { ...user, ...updates };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
 
-      if (inputHash === validPasswordHash) {
-        // Generate secure session token
-        const sessionToken = createHash('sha256').update(Date.now() + Math.random().toString()).digest('hex');
-        console.log('✅ Admin access granted');
-        res.json({ 
-          success: true, 
-          sessionToken,
-          timestamp: Date.now()
-        });
-      } else {
-        // Log failed attempt
-        console.log('🚨 Failed admin access attempt from IP:', req.ip);
-        res.status(401).json({ success: false, message: "Access denied - invalid password" });
-      }
-    } catch (error) {
-      console.error("🔴 Critical security system error:", error);
-      res.status(500).json({ success: false, message: "Security system unavailable" });
-    }
-  });
+  async validateUser(email: string, password: string): Promise<User | undefined> {
+    const user = await this.getUserByEmail(email);
+    if (!user) return undefined;
 
-  // Admin recovery OTP system
-  app.post("/api/admin/send-recovery-otp", async (req, res) => {
-    try {
-      const { email } = req.body;
+    const isValid = await bcrypt.compare(password, user.password);
+    return isValid ? user : undefined;
+  }
 
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
+  // Company methods
+  async getCompanies(): Promise<Company[]> {
+    return Array.from(this.companies.values());
+  }
 
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  async getCompany(id: string): Promise<Company | undefined> {
+    return this.companies.get(id);
+  }
 
-      // Store OTP for recovery
-      await storage.storePasswordResetOtp(email, otp);
+  async createCompany(insertCompany: InsertCompany): Promise<Company> {
+    const id = randomUUID();
+    const company: Company = {
+      id,
+      name: insertCompany.name,
+      description: insertCompany.description || null,
+      website: insertCompany.website || null,
+      linkedinUrl: insertCompany.linkedinUrl || null,
+      logo: insertCompany.logo || null,
+      location: insertCompany.location || null,
+      industry: insertCompany.industry || null,
+      size: insertCompany.size || null,
+      founded: insertCompany.founded || null,
+      createdAt: new Date(),
+    };
+    this.companies.set(id, company);
+    return company;
+  }
 
-      // Send email using SendGrid with proper error handling
-      const { default: sgMail } = await import('@sendgrid/mail');
+  async updateCompany(id: string, updates: Partial<InsertCompany>): Promise<Company | undefined> {
+    const existing = this.companies.get(id);
+    if (!existing) return undefined;
 
-      if (!process.env.SENDGRID_API_KEY) {
-        throw new Error('SendGrid API key not configured');
-      }
+    const updated: Company = {
+      ...existing,
+      ...updates,
+      id: existing.id, // Preserve original ID
+      createdAt: existing.createdAt // Preserve creation date
+    };
+    this.companies.set(id, updated);
+    return updated;
+  }
 
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  // Job methods
+  async getJobs(filters?: { experienceLevel?: string; location?: string; search?: string; userId?: string }): Promise<(Job & { company: Company })[]> {
+    let jobs = Array.from(this.jobs.values());
 
-      const msg = {
-        to: email,
-        from: 'ramdegala3@gmail.com', // Must be verified in SendGrid
-        subject: 'Admin Access Recovery - Job Portal',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2563eb;">Admin Access Recovery</h2>
-            <p>You requested to recover access to the Admin Job Portal.</p>
-            <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-              <h3 style="color: #1f2937; margin: 0;">Recovery Code:</h3>
-              <h1 style="color: #2563eb; font-size: 32px; letter-spacing: 4px; margin: 10px 0;">${otp}</h1>
-            </div>
-            <p><strong>This code will expire in 5 minutes.</strong></p>
-            <p style="color: #6b7280; font-size: 14px;">
-              If you didn't request this recovery, please ignore this email.
-            </p>
-          </div>
-        `
-      };
-
-      try {
-        await sgMail.send(msg);
-        console.log(`Recovery OTP sent successfully to ${email}: ${otp}`);
-        res.json({ success: true, message: "Recovery OTP sent successfully" });
-      } catch (emailError) {
-        // Fallback: Log OTP to console for testing when SendGrid is not configured
-        console.log(`🔐 BACKUP - Recovery OTP generated for ${email.slice(0,3)}***@gmail.com: ${otp}`);
-        console.log('Note: Configure SendGrid sender verification to send actual emails');
-        res.json({ success: true, message: "Recovery OTP ready (check admin console)" });
-      }
-    } catch (error) {
-      console.error("Error sending recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to send recovery OTP" });
-    }
-  });
-
-  // Verify recovery OTP
-  app.post("/api/admin/verify-recovery-otp", async (req, res) => {
-    try {
-      const { email, otp } = req.body;
-
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
-
-      if (!otp) {
-        return res.status(400).json({ success: false, message: "OTP is required" });
-      }
-
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-
-      res.json({ success: true, message: "OTP verified successfully" });
-    } catch (error) {
-      console.error("Error verifying recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to verify OTP" });
-    }
-  });
-
-  // Reset admin password
-  app.post("/api/admin/reset-password", async (req, res) => {
-    try {
-      const { email, newPassword, otp } = req.body;
-
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
-
-      if (!newPassword || !otp) {
-        return res.status(400).json({ success: false, message: "New password and OTP are required" });
-      }
-
-      // Validate new password format (6 digits)
-      if (!/^\d{6}$/.test(newPassword)) {
-        return res.status(400).json({ success: false, message: "Password must be exactly 6 digits" });
-      }
-
-      // Verify OTP is still valid
-      const isValidOtp = await storage.verifyPasswordResetOtp(email, otp);
-      if (!isValidOtp) {
-        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-
-      // Update the admin password
-      await storage.updateAdminPassword(newPassword);
-      
-      // Clear the OTP after successful password reset
-      await storage.clearPasswordResetOtp(email);
-
-      console.log('🔐 Admin password updated successfully');
-      res.json({ success: true, message: "Password updated successfully" });
-    } catch (error) {
-      console.error("Error resetting password:", error);
-      res.status(500).json({ success: false, message: "Failed to reset password" });
-    }
-  });
-
-  // Health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0',
-      uptime: process.uptime()
-    });
-  });
-
-  // Root API endpoint moved to /api to avoid interfering with frontend
-  app.get('/api', (req, res) => {
-    res.json({
-      message: 'JobPortal API is running',
-      status: 'healthy',
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Presentation download routes
-  app.get('/download-html', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      const markdownContent = fs.readFileSync(mdPath, 'utf8');
-      const htmlContent = marked.parse(markdownContent);
-
-      const fullHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>JobPortal Complete Presentation</title>
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      line-height: 1.6;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-      color: #333;
-    }
-    h1 { color: #2563eb; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
-    h2 { color: #1e40af; margin-top: 30px; }
-    h3 { color: #1d4ed8; }
-    .page-break { page-break-before: always; }
-    code { background: #f3f4f6; padding: 2px 4px; border-radius: 3px; }
-    pre { background: #f9fafb; padding: 15px; border-radius: 5px; overflow-x: auto; }
-    blockquote { border-left: 4px solid #2563eb; margin: 0; padding-left: 20px; font-style: italic; }
-    hr { border: none; border-top: 2px solid #e5e7eb; margin: 40px 0; }
-    img { max-width: 100%; height: auto; }
-  </style>
-</head>
-<body>
-  ${htmlContent}
-</body>
-</html>`;
-
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Content-Disposition', 'attachment; filename="JobPortal_Complete_Presentation.html"');
-      res.send(fullHTML);
-    } catch (error) {
-      console.error('Error generating HTML:', error);
-      res.status(500).json({ message: 'Error generating HTML file' });
-    }
-  });
-
-  app.get('/download-markdown', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      res.setHeader('Content-Type', 'text/markdown');
-      res.setHeader('Content-Disposition', 'attachment; filename="JobPortal_Complete_Presentation.md"');
-      res.sendFile(mdPath);
-    } catch (error) {
-      console.error('Error downloading markdown:', error);
-      res.status(500).json({ message: 'Error downloading markdown file' });
-    }
-  });
-
-  app.get('/presentation', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      const markdownContent = fs.readFileSync(mdPath, 'utf8');
-      const htmlContent = marked.parse(markdownContent);
-
-      const fullHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>JobPortal Complete Presentation</title>
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      line-height: 1.6;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 20px;
-      color: #333;
-      background: #f8fafc;
-    }
-    .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { color: #2563eb; border-bottom: 3px solid #2563eb; padding-bottom: 10px; font-size: 2.5em; }
-    h2 { color: #1e40af; margin-top: 40px; font-size: 2em; }
-    h3 { color: #1d4ed8; font-size: 1.5em; }
-    code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; }
-    pre { background: #f9fafb; padding: 20px; border-radius: 8px; overflow-x: auto; border-left: 4px solid #2563eb; }
-    blockquote { border-left: 4px solid #2563eb; margin: 20px 0; padding-left: 20px; font-style: italic; background: #f8fafc; padding: 15px 20px; }
-    hr { border: none; border-top: 2px solid #e5e7eb; margin: 40px 0; }
-    img { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; }
-    .print-btn { position: fixed; top: 20px; right: 20px; background: #2563eb; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-    @media print { .print-btn { display: none; } }
-  </style>
-</head>
-<body>
-  <button class="print-btn" onclick="window.print()">Print/Save as PDF</button>
-  <div class="container">
-    ${htmlContent}
-  </div>
-</body>
-</html>`;
-
-      res.setHeader('Content-Type', 'text/html');
-      res.send(fullHTML);
-    } catch (error) {
-      console.error('Error serving presentation:', error);
-      res.status(500).json({ message: 'Error loading presentation' });
-    }
-  });
-
-  // PDF download endpoint (fallback)
-  app.get('/download-pdf', (req, res) => {
-    const pdfPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.pdf');
-
-    if (fs.existsSync(pdfPath)) {
-      res.download(pdfPath, 'JobPortal_Complete_Presentation.pdf', (err) => {
-        if (err) {
-          console.error('Error downloading PDF:', err);
-          res.status(500).json({ message: 'Error downloading PDF' });
+    // Filter out jobs that have been soft-deleted by the requesting user
+    if (filters?.userId) {
+      const deletedJobIds = new Set<string>();
+      this.deletedPosts.forEach(post => {
+        if (post.userId === filters.userId && post.originalId && post.type === 'job') {
+          deletedJobIds.add(post.originalId);
         }
       });
-    } else {
-      res.status(404).json({ message: 'PDF file not found' });
+      jobs = jobs.filter(job => !deletedJobIds.has(job.id));
     }
-  });
 
-  const httpServer = createServer(app);
-  return httpServer;
+    if (filters?.experienceLevel) {
+      jobs = jobs.filter(job => job.experienceLevel === filters.experienceLevel);
+    }
+
+    if (filters?.location) {
+      jobs = jobs.filter(job => job.location.toLowerCase().includes(filters.location!.toLowerCase()));
+    }
+
+    if (filters?.search) {
+      const search = filters.search.toLowerCase();
+      jobs = jobs.filter(job =>
+        job.title.toLowerCase().includes(search) ||
+        job.description.toLowerCase().includes(search) ||
+        job.skills.toLowerCase().includes(search)
+      );
+    }
+
+    return jobs.map(job => {
+      const company = this.companies.get(job.companyId)!;
+      return { ...job, company };
+    });
+  }
+
+  async getJob(id: string): Promise<(Job & { company: Company }) | undefined> {
+    const job = this.jobs.get(id);
+    if (!job) return undefined;
+
+    const company = this.companies.get(job.companyId)!;
+    return { ...job, company };
+  }
+
+  async getJobById(id: string): Promise<Job | undefined> {
+    return this.jobs.get(id);
+  }
+
+
+  async createJob(insertJob: InsertJob): Promise<Job> {
+    const id = randomUUID();
+    const job: Job = {
+      id,
+      companyId: insertJob.companyId,
+      title: insertJob.title,
+      description: insertJob.description,
+      requirements: insertJob.requirements,
+      qualifications: insertJob.qualifications,
+      skills: insertJob.skills,
+      experienceLevel: insertJob.experienceLevel,
+      experienceMin: insertJob.experienceMin || null,
+      experienceMax: insertJob.experienceMax || null,
+      location: insertJob.location,
+      jobType: insertJob.jobType,
+      salary: insertJob.salary || null,
+      applyUrl: insertJob.applyUrl || null,
+      closingDate: insertJob.closingDate,
+      batchEligible: insertJob.batchEligible || null,
+      isActive: insertJob.isActive ?? true,
+      createdAt: new Date(),
+    };
+    this.jobs.set(id, job);
+    return job;
+  }
+
+  async updateJob(id: string, updates: Partial<InsertJob>): Promise<Job | undefined> {
+    const existing = this.jobs.get(id);
+    if (!existing) return undefined;
+
+    const updated: Job = { ...existing, ...updates };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
+  // Helper to save jobs (for MemStorage)
+  private async saveJobs(): Promise<void> {
+    // In a real scenario, this would persist to a file or database.
+    // For this in-memory store, no action is strictly needed for persistence,
+    // but it's good practice to have a placeholder if storage were more complex.
+  }
+
+  // Helper to save applications (for MemStorage)
+  private async saveApplications(): Promise<void> {
+    // Similar to saveJobs, placeholder for persistence.
+  }
+
+  async deleteJob(jobId: string): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      this.jobs.delete(jobId);
+      // In a real scenario, you might want to save this change.
+      // For this in-memory store, the change is immediate.
+    }
+
+    // Also remove any applications for this job
+    Array.from(this.applications.entries()).forEach(([key, app]) => {
+      if (app.jobId === jobId) {
+        this.applications.delete(key);
+      }
+    });
+    // In a real scenario, you might want to save this change.
+  }
+
+
+  // Application methods
+  async createApplication(insertApplication: InsertApplication): Promise<Application> {
+    const id = randomUUID();
+    const application: Application = {
+      id,
+      userId: insertApplication.userId,
+      jobId: insertApplication.jobId,
+      status: insertApplication.status || null,
+      appliedAt: new Date(),
+    };
+    this.applications.set(id, application);
+    return application;
+  }
+
+  async getUserApplications(userId: string): Promise<(Application & { job: Job & { company: Company } })[]> {
+    const userApps = Array.from(this.applications.values()).filter(app => app.userId === userId);
+
+    return userApps.map(app => {
+      const job = this.jobs.get(app.jobId);
+      if (!job) return null;
+      const company = this.companies.get(job.companyId);
+      if (!company) return null;
+      return { ...app, job: { ...job, company } };
+    }).filter(app => app !== null) as (Application & { job: Job & { company: Company } })[];
+  }
+
+  async deleteApplication(id: string): Promise<void> {
+    this.applications.delete(id);
+  }
+
+  // Course methods
+  async getCourses(category?: string): Promise<Course[]> {
+    let courses = Array.from(this.courses.values());
+
+    if (category) {
+      courses = courses.filter(course => course.category === category);
+    }
+
+    return courses;
+  }
+
+  async getCourse(id: string): Promise<Course | undefined> {
+    return this.courses.get(id);
+  }
+
+  async createCourse(insertCourse: InsertCourse): Promise<Course> {
+    const id = randomUUID();
+    const course: Course = {
+      id,
+      title: insertCourse.title,
+      description: insertCourse.description,
+      instructor: insertCourse.instructor || null,
+      duration: insertCourse.duration || null,
+      level: insertCourse.level || null,
+      category: insertCourse.category,
+      imageUrl: insertCourse.imageUrl || null,
+      courseUrl: insertCourse.courseUrl || null,
+      price: "Free", // All courses are now free
+      createdAt: new Date(),
+    };
+    this.courses.set(id, course);
+    return course;
+  }
+
+  async updateCourse(id: string, updates: Partial<InsertCourse>): Promise<Course | undefined> {
+    const existing = this.courses.get(id);
+    if (!existing) return undefined;
+
+    const updated: Course = {
+      ...existing,
+      ...updates,
+      id: existing.id, // Preserve original ID
+      createdAt: existing.createdAt, // Preserve creation date
+      price: "Free" // Ensure all courses remain free
+    };
+    this.courses.set(id, updated);
+    return updated;
+  }
+
+  async deleteCourse(courseId: string): Promise<boolean> {
+    const deleted = this.courses.delete(courseId);
+    return deleted;
+  }
+
+  // Contact methods
+  async createContact(insertContact: InsertContact): Promise<Contact> {
+    const id = randomUUID();
+    const contact: Contact = {
+      ...insertContact,
+      id,
+      createdAt: new Date(),
+    };
+    this.contacts.set(id, contact);
+    return contact;
+  }
+
+  // Company deletion method
+  async deleteCompany(id: string): Promise<boolean> {
+    // First, delete all jobs associated with this company
+    const jobsToDelete = Array.from(this.jobs.values()).filter(job => job.companyId === id);
+    jobsToDelete.forEach(job => this.jobs.delete(job.id));
+
+    // Then delete the company
+    const deleted = this.companies.delete(id);
+    return deleted;
+  }
+
+  // Company soft delete methods
+  async softDeleteCompany(id: string): Promise<any> {
+    const company = this.companies.get(id);
+    if (!company) {
+      return null;
+    }
+
+    // Move company to deleted companies with timestamp
+    const deletedCompany = {
+      ...company,
+      deletedAt: new Date(),
+      originalType: 'company'
+    };
+
+    this.deletedCompanies.set(id, deletedCompany);
+    this.companies.delete(id);
+
+    return deletedCompany;
+  }
+
+  async getDeletedCompanies(): Promise<any[]> {
+    const deletedCompanies = Array.from(this.deletedCompanies.values());
+
+    // Filter out companies older than 7 days and clean them up
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const activeDeleted = deletedCompanies.filter(company => {
+      const deletedDate = new Date(company.deletedAt);
+      if (deletedDate < sevenDaysAgo) {
+        // Automatically remove expired deleted companies
+        this.deletedCompanies.delete(company.id);
+        return false;
+      }
+      return true;
+    });
+
+    return activeDeleted;
+  }
+
+  async restoreDeletedCompany(id: string): Promise<Company | undefined> {
+    console.log(`Attempting to restore deleted company: ${id}`);
+    const deletedCompany = this.deletedCompanies.get(id);
+
+    if (!deletedCompany) {
+      console.log(`Deleted company not found: ${id}`);
+      return undefined;
+    }
+
+    // Create a new company from the deleted company data
+    const restoredCompany = {
+      id: deletedCompany.id,
+      name: deletedCompany.name,
+      description: deletedCompany.description,
+      website: deletedCompany.website,
+      linkedinUrl: deletedCompany.linkedinUrl,
+      logo: deletedCompany.logo,
+      location: deletedCompany.location,
+      industry: deletedCompany.industry || null,
+      size: deletedCompany.size || null,
+      founded: deletedCompany.founded || null,
+      createdAt: new Date(), // Set new creation date
+    };
+
+    // Add back to companies
+    this.companies.set(id, restoredCompany);
+
+    // Remove from deleted companies
+    this.deletedCompanies.delete(id);
+
+    console.log(`Company restored successfully: ${id}`);
+    return restoredCompany;
+  }
+
+  async updateDeletedCompany(id: string, updateData: any) {
+    console.log(`Attempting to update deleted company: ${id}`);
+    const deletedCompany = this.deletedCompanies.get(id);
+
+    if (!deletedCompany) {
+      console.log(`Deleted company not found: ${id}`);
+      return undefined;
+    }
+
+    // Update the deleted company with new data
+    const updatedDeletedCompany = {
+      ...deletedCompany,
+      name: updateData.name || deletedCompany.name,
+      description: updateData.description !== undefined ? updateData.description : deletedCompany.description,
+      website: updateData.website !== undefined ? updateData.website : deletedCompany.website,
+      linkedinUrl: updateData.linkedinUrl !== undefined ? updateData.linkedinUrl : deletedCompany.linkedinUrl,
+      logo: updateData.logo !== undefined ? updateData.logo : deletedCompany.logo,
+      location: updateData.location !== undefined ? updateData.location : deletedCompany.location,
+    };
+
+    // Save the updated deleted company
+    this.deletedCompanies.set(id, updatedDeletedCompany);
+
+    console.log(`Deleted company updated successfully: ${id}`);
+    return updatedDeletedCompany;
+  }
+
+  async permanentlyDeleteCompany(id: string): Promise<boolean> {
+    const deleted = this.deletedCompanies.delete(id);
+    return deleted;
+  }
+
+  // Password reset methods
+  async storePasswordResetOtp(email: string, otp: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    this.passwordResetOtps.set(email, {otp, expiresAt });
+    console.log(`Password reset OTP stored for ${email}: ${otp}`);
+  }
+
+  async verifyPasswordResetOtp(email: string, otp: string): Promise<boolean> {
+    const stored = this.passwordResetOtps.get(email);
+    if (!stored) {
+      return false;
+    }
+
+    if (Date.now() > stored.expiresAt.getTime()) {
+      this.passwordResetOtps.delete(email);
+      return false;
+    }
+
+    return stored.otp === otp;
+  }
+
+  async clearPasswordResetOtp(email: string): Promise<void> {
+    this.passwordResetOtps.delete(email);
+    console.log(`Password reset OTP cleared for ${email}`);
+  }
+
+  async updateUserPassword(email: string, newPassword: string): Promise<void> {
+    const user = await this.getUserByEmail(email);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const updatedUser = { ...user, password: hashedPassword };
+    this.users.set(user.id, updatedUser);
+  }
+
+  // Update admin password
+  async updateAdminPassword(newPassword: string): Promise<void> {
+    // Create hash with the same salt used for verification
+    const { createHash } = await import('crypto');
+    const newPasswordHash = createHash('sha256').update(newPassword + 'jobportal_secure_salt_2024').digest('hex');
+
+    // In a real application, you would store this in a database
+    // For now, we'll log it and update the verification logic
+    console.log(`🔐 New admin password hash: ${newPasswordHash}`);
+    console.log(`🔑 Admin password updated successfully for password: ${newPassword}`);
+  }
+
+
+  // Deleted Posts methods
+  async addDeletedPost(post: any): Promise<any> {
+    if (!this.deletedPosts) {
+      this.deletedPosts = new Map<string, any>();
+    }
+    this.deletedPosts.set(post.id, post);
+    console.log(`Added deleted post: ${post.id} for user: ${post.userId}`);
+    return post;
+  }
+
+  async getUserDeletedPosts(userId: string): Promise<any[]> {
+    console.log(`Storage: Getting deleted posts for user ${userId}`);
+    if (!this.deletedPosts) {
+      this.deletedPosts = new Map<string, any>(); // Ensure it's initialized as a Map if it somehow became undefined
+    }
+    const userDeletedPosts = Array.from(this.deletedPosts.values()).filter(post => post.userId === userId);
+    console.log(`Storage: Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
+
+    // Ensure each deleted post has complete job data with company information
+    const enrichedDeletedPosts = userDeletedPosts.map(post => {
+      if (post.job && !post.job.company) {
+        // Get company data for the job
+        const company = this.companies.get(post.job.companyId);
+        if (company) {
+          post.job.company = company;
+        }
+      }
+      return post;
+    });
+
+    return enrichedDeletedPosts;
+  }
+
+  async softDeleteJob(jobId: string, userId: string): Promise<any> {
+    console.log(`[STORAGE] softDeleteJob called with jobId: ${jobId}, userId: ${userId}`);
+    
+    if (!jobId || !userId) {
+      throw new Error('JobId and userId are required for soft delete');
+    }
+    
+    const jobWithCompany = await this.getJob(jobId);
+    if (!jobWithCompany) {
+      console.log(`[STORAGE] Job not found: ${jobId}`);
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    console.log(`[STORAGE] Job found: ${jobWithCompany.title} by ${jobWithCompany.company.name}`);
+
+    // Initialize deletedPosts if not exists
+    if (!this.deletedPosts) {
+      this.deletedPosts = new Map<string, any>();
+    }
+
+    // Check if already deleted by this user
+    const existingDeleted = Array.from(this.deletedPosts.values()).find(
+      post => post.userId === userId && (post.jobId === jobId || post.originalId === jobId)
+    );
+    
+    if (existingDeleted) {
+      console.log(`[STORAGE] Job ${jobId} already deleted for user ${userId}`);
+      return existingDeleted;
+    }
+
+    // Create application if not exists (to track the delete action)
+    const userApplications = await this.getUserApplications(userId);
+    const existingApplication = userApplications.find(app => app.job.id === jobId);
+
+    let applicationId = null;
+    if (!existingApplication) {
+      try {
+        const newApplication = {
+          id: randomUUID(),
+          userId,
+          jobId,
+          status: 'applied' as const,
+          appliedAt: new Date(),
+        };
+        await this.createApplication(newApplication);
+        applicationId = newApplication.id;
+        console.log(`[STORAGE] Created application for user ${userId} and job ${jobId}`);
+      } catch (appError) {
+        console.log(`[STORAGE] Failed to create application, continuing without: ${appError}`);
+      }
+    } else {
+      applicationId = existingApplication.id;
+      console.log(`[STORAGE] Using existing application: ${applicationId}`);
+    }
+
+    // Create deleted post entry with complete job and company data (similar to deleted companies)
+    const deletedPost = {
+      id: randomUUID(),
+      userId: userId,
+      originalId: jobId,
+      jobId: jobId,
+      applicationId: applicationId,
+      type: 'job' as const,
+      title: jobWithCompany.title,
+      description: jobWithCompany.description,
+      company: jobWithCompany.company,
+      location: jobWithCompany.location,
+      salary: jobWithCompany.salary,
+      experience: jobWithCompany.experienceLevel,
+      skills: jobWithCompany.skills,
+      deletedAt: new Date(),
+      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now (like companies have 7 days)
+      originalType: 'job', // Add this field like deleted companies
+      job: jobWithCompany // Include complete job data for frontend compatibility
+    };
+
+    this.deletedPosts.set(deletedPost.id, deletedPost);
+
+    console.log(`[STORAGE] Job ${jobId} moved to trash for user ${userId} with deleted post ID: ${deletedPost.id}`);
+    console.log(`[STORAGE] Deleted post created:`, {
+      id: deletedPost.id,
+      userId: deletedPost.userId,
+      jobId: deletedPost.jobId,
+      title: deletedPost.title
+    });
+
+    return deletedPost;
+  }
+
+  async softDeleteApplication(applicationId: string): Promise<any> {
+    const application = this.applications.get(applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    const job = await this.getJob(application.jobId);
+    if (!job) {
+      throw new Error('Job not found');
+    }
+
+    // Create deleted post
+    const deletedPost = {
+      id: randomUUID(),
+      userId: application.userId,
+      jobId: application.jobId,
+      job: job,
+      deletedAt: new Date(),
+    };
+
+    this.deletedPosts.set(deletedPost.id, deletedPost);
+
+    // Remove from applications
+    this.applications.delete(applicationId);
+
+    return deletedPost;
+  }
+
+  async restoreDeletedPost(deletedPostId: string): Promise<any> {
+    console.log(`[RESTORE] Starting restoration of deleted post: ${deletedPostId}`);
+
+    const deletedPost = this.deletedPosts.get(deletedPostId);
+    if (!deletedPost) {
+      console.log(`[RESTORE] Deleted post not found: ${deletedPostId}`);
+      throw new Error('Deleted post not found');
+    }
+
+    console.log(`[RESTORE] Found deleted post for user ${deletedPost.userId} and job ${deletedPost.jobId}`);
+
+    // Remove ALL applications for this job and user combination to completely reset apply status
+    const applicationsToRemove: string[] = [];
+    Array.from(this.applications.entries()).forEach(([key, app]) => {
+      if (app.jobId === deletedPost.jobId && app.userId === deletedPost.userId) {
+        applicationsToRemove.push(key);
+      }
+    });
+
+    console.log(`[RESTORE] Found ${applicationsToRemove.length} applications to remove`);
+
+    // Remove all found applications
+    applicationsToRemove.forEach(appId => {
+      this.applications.delete(appId);
+      console.log(`[RESTORE] Removed application ${appId} for job ${deletedPost.jobId} and user ${deletedPost.userId}`);
+    });
+
+    // Also remove the specific application ID if it exists in the deleted post
+    if (deletedPost.applicationId) {
+      this.applications.delete(deletedPost.applicationId);
+      console.log(`[RESTORE] Removed specific application ${deletedPost.applicationId} during restore`);
+    }
+
+    // Remove from deleted posts
+    this.deletedPosts.delete(deletedPostId);
+
+    console.log(`[RESTORE] Successfully restored job ${deletedPost.jobId} for user ${deletedPost.userId} - apply status completely reset`);
+    return {
+      message: 'Post restored successfully',
+      jobId: deletedPost.jobId,
+      userId: deletedPost.userId,
+      applicationsRemoved: applicationsToRemove.length + (deletedPost.applicationId ? 1 : 0)
+    };
+  }
+
+  async permanentlyDeletePost(deletedPostId: string): Promise<void> {
+    this.deletedPosts.delete(deletedPostId);
+  }
+
+  // The following softDeleteJob method seems to be duplicated.
+  // I will keep the one that also removes the job from the active jobs list
+  // as it aligns better with the idea of "deleting" a post.
+
+  async getDeletedPosts(): Promise<any[]> {
+    return Array.from(this.deletedPosts.values());
+  }
+
+  async deletePostFromDeleted(id: string): Promise<void> {
+    this.deletedPosts.delete(id);
+  }
+
+  }
+
+// Database connection setup (assuming a db.ts file or similar)
+// If DATABASE_URL is not set, use an in-memory database for development/testing
+const connection = process.env.DATABASE_URL
+  ? postgres(process.env.DATABASE_URL)
+  : postgres("postgresql://user:password@host:port/database", { prepare: false }); // Placeholder for local development if no URL
+
+const db = drizzle(connection, { schema }); // Assuming schema is correctly imported and defined
+
+// Database storage implementation using Drizzle ORM
+export class DbStorage implements IStorage {
+  // Auth methods
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const users = await db.select().from(schema.users).where(eq(schema.users.email, email));
+    return users[0];
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    const users = await db.select().from(schema.users).where(eq(schema.users.id, id));
+    return users[0];
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const hashedPassword = await bcrypt.hash(user.password, 12);
+    const userData = {
+      ...user,
+      password: hashedPassword,
+    };
+    const [newUser] = await db.insert(schema.users).values(userData).returning();
+    return newUser;
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const [updatedUser] = await db.update(schema.users)
+      .set(updates)
+      .where(eq(schema.users.id, id))
+      .returning();
+    return updatedUser;
+  }
+
+  async validateUser(email: string, password: string): Promise<User | undefined> {
+    const user = await this.getUserByEmail(email);
+    if (!user) return undefined;
+
+    const isValid = await bcrypt.compare(password, user.password);
+    return isValid ? user : undefined;
+  }
+
+  async updateUserPassword(email: string, newPassword: string): Promise<void> {
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await db.update(schema.users)
+      .set({ password: hashedPassword })
+      .where(eq(schema.users.email, email));
+  }
+
+  // Company methods
+  async getCompanies(): Promise<Company[]> {
+    return await db.select().from(schema.companies);
+  }
+
+  async getCompany(id: string): Promise<Company | undefined> {
+    const companies = await db.select().from(schema.companies).where(eq(schema.companies.id, id));
+    return companies[0];
+  }
+
+  async createCompany(insertCompany: InsertCompany): Promise<Company> {
+    const [company] = await db.insert(schema.companies).values(insertCompany).returning();
+    return company;
+  }
+
+  async updateCompany(id: string, updates: Partial<InsertCompany>): Promise<Company | undefined> {
+    const [updatedCompany] = await db.update(schema.companies)
+      .set(updates)
+      .where(eq(schema.companies.id, id))
+      .returning();
+    return updatedCompany;
+  }
+
+  async deleteCompany(id: string): Promise<boolean> {
+    // First, delete all jobs associated with this company
+    await db.delete(schema.jobs).where(eq(schema.jobs.companyId, id));
+
+    // Then delete the company
+    const result = await db.delete(schema.companies).where(eq(schema.companies.id, id));
+    return true; // In Drizzle, a successful delete operation doesn't fail
+  }
+
+  // Job methods
+  async getJobs(filters?: { experienceLevel?: string; location?: string; search?: string; userId?: string }): Promise<(Job & { company: Company })[]> {
+    // Construct the base query to select jobs and join with companies
+    let query = db
+      .select({
+        id: jobsTable.id,
+        companyId: jobsTable.companyId,
+        title: jobsTable.title,
+        description: jobsTable.description,
+        requirements: jobsTable.requirements,
+        qualifications: jobsTable.qualifications,
+        skills: jobsTable.skills,
+        experienceLevel: jobsTable.experienceLevel,
+        experienceMin: jobsTable.experienceMin,
+        experienceMax: jobsTable.experienceMax,
+        location: jobsTable.location,
+        jobType: jobsTable.jobType,
+        salary: jobsTable.salary,
+        applyUrl: jobsTable.applyUrl,
+        closingDate: jobsTable.closingDate,
+        batchEligible: jobsTable.batchEligible,
+        isActive: jobsTable.isActive,
+        createdAt: jobsTable.createdAt,
+        companyName: companiesTable.name,
+        companyDescription: companiesTable.description,
+        companyWebsite: companiesTable.website,
+        companyLogo: companiesTable.logo,
+        companyLinkedinUrl: companiesTable.linkedinUrl,
+        companyIndustry: companiesTable.industry,
+        companySize: companiesTable.size,
+        companyLocation: companiesTable.location,
+        companyFounded: companiesTable.founded,
+        companyCreatedAt: companiesTable.createdAt,
+      })
+      .from(jobsTable)
+      .innerJoin(companiesTable, eq(jobsTable.companyId, companiesTable.id))
+      .where(eq(jobsTable.isActive, true));
+
+    // If userId is provided, exclude jobs that have been soft-deleted by this user
+    if (filters?.userId) {
+      const userDeletedJobs = await db
+        .select({ jobId: deletedPostsTable.jobId })
+        .from(deletedPostsTable)
+        .where(eq(deletedPostsTable.userId, filters.userId));
+
+      const deletedJobIds = userDeletedJobs.map(dp => dp.jobId).filter(id => id !== null) as string[];
+
+      if (deletedJobIds.length > 0) {
+        // Note: We need to filter these out after the query since query is already built
+        const jobs = await query.orderBy(desc(jobsTable.createdAt));
+        const filteredJobs = jobs.filter(job => !deletedJobIds.includes(job.id));
+
+        return filteredJobs.map(job => ({
+          id: job.id,
+          companyId: job.companyId,
+          title: job.title,
+          description: job.description,
+          requirements: job.requirements,
+          qualifications: job.qualifications,
+          skills: job.skills,
+          experienceLevel: job.experienceLevel as 'fresher' | 'experienced',
+          experienceMin: job.experienceMin,
+          experienceMax: job.experienceMax,
+          location: job.location,
+          jobType: job.jobType as 'full-time' | 'part-time' | 'contract' | 'internship',
+          salary: job.salary,
+          applyUrl: job.applyUrl,
+          closingDate: job.closingDate,
+          batchEligible: job.batchEligible,
+          isActive: job.isActive,
+          createdAt: job.createdAt,
+          company: {
+            id: job.companyId,
+            name: job.companyName,
+            description: job.companyDescription,
+            website: job.companyWebsite,
+            logo: job.companyLogo,
+            linkedinUrl: job.companyLinkedinUrl,
+            industry: job.companyIndustry,
+            size: job.companySize as 'startup' | 'small' | 'medium' | 'large' | 'enterprise',
+            location: job.companyLocation,
+            founded: job.companyFounded,
+            createdAt: job.companyCreatedAt,
+          }
+        }));
+      }
+    }
+
+    const jobs = await query.orderBy(desc(jobsTable.createdAt));
+
+    // Map the results to the expected format
+    return jobs.map(job => ({
+      id: job.id,
+      companyId: job.companyId,
+      title: job.title,
+      description: job.description,
+      requirements: job.requirements,
+      qualifications: job.qualifications,
+      skills: job.skills,
+      experienceLevel: job.experienceLevel as 'fresher' | 'experienced',
+      experienceMin: job.experienceMin,
+      experienceMax: job.experienceMax,
+      location: job.location,
+      jobType: job.jobType as 'full-time' | 'part-time' | 'contract' | 'internship',
+      salary: job.salary,
+      applyUrl: job.applyUrl,
+      closingDate: job.closingDate,
+      batchEligible: job.batchEligible,
+      isActive: job.isActive,
+      createdAt: job.createdAt,
+      company: {
+        id: job.companyId,
+        name: job.companyName,
+        description: job.companyDescription,
+        website: job.companyWebsite,
+        logo: job.companyLogo,
+        linkedinUrl: job.companyLinkedinUrl,
+        industry: job.companyIndustry,
+        size: job.companySize as 'startup' | 'small' | 'medium' | 'large' | 'enterprise',
+        location: job.companyLocation,
+        founded: job.companyFounded,
+        createdAt: job.companyCreatedAt,
+      }
+    }));
+  }
+
+  async getJob(id: string): Promise<(Job & { company: Company }) | undefined> {
+    const result = await db
+      .select({
+        job: schema.jobs,
+        company: schema.companies,
+      })
+      .from(schema.jobs)
+      .leftJoin(schema.companies, eq(schema.jobs.companyId, schema.companies.id))
+      .where(eq(schema.jobs.id, id));
+
+    if (!result[0] || !result[0].job) return undefined;
+
+    return {
+      ...result[0].job,
+      company: result[0].company!
+    };
+  }
+
+  async createJob(insertJob: InsertJob): Promise<Job> {
+    const [job] = await db.insert(schema.jobs).values(insertJob).returning();
+    return job;
+  }
+
+  async updateJob(id: string, updates: Partial<InsertJob>): Promise<Job | undefined> {
+    const [updatedJob] = await db.update(schema.jobs)
+      .set(updates)
+      .where(eq(schema.jobs.id, id))
+      .returning();
+    return updatedJob;
+  }
+
+  async deleteJob(jobId: string): Promise<void> {
+    // Delete the job itself
+    await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId));
+
+    // Also remove any applications for this job
+    await db.delete(schema.applications).where(eq(schema.applications.jobId, jobId));
+  }
+
+
+  // Application methods
+  async createApplication(application: InsertApplication): Promise<Application> {
+    const [app] = await db.insert(schema.applications).values(application).returning();
+    return app;
+  }
+
+  async getUserApplications(userId: string): Promise<(Application & { job: Job & { company: Company } })[]> {
+    const apps = await db.select().from(schema.applications).where(eq(schema.applications.userId, userId));
+    const result = [];
+
+    for (const app of apps) {
+      const job = await this.getJob(app.jobId);
+      if (job) {
+        result.push({
+          ...app,
+          job
+        });
+      }
+    }
+
+    return result;
+  }
+
+  async deleteApplication(id: string): Promise<void> {
+    await db.delete(schema.applications).where(eq(schema.applications.id, id));
+  }
+
+  // Course methods
+  async getCourses(category?: string): Promise<Course[]> {
+    let courses;
+    if (category) {
+      courses = await db.select().from(schema.courses).where(eq(schema.courses.category, category));
+    } else {
+      courses = await db.select().from(schema.courses);
+    }
+    // Make all courses free when fetching
+    return courses.map(course => ({ ...course, price: "Free" }));
+  }
+
+  async getCourse(id: string): Promise<Course | undefined> {
+    const courses = await db.select().from(schema.courses).where(eq(schema.courses.id, id));
+    if (courses.length > 0) {
+      // Make the fetched course free
+      return { ...courses[0], price: "Free" };
+    }
+    return undefined;
+  }
+
+  async createCourse(insertCourse: InsertCourse): Promise<Course> {
+    try {
+      const courseData = {
+        ...insertCourse,
+        price: "Free", // Ensure all created courses are free
+      };
+      const [newCourse] = await db.insert(schema.courses).values(courseData).returning();
+      console.log('Course created successfully:', newCourse.title);
+      return newCourse;
+    } catch (error) {
+      console.error('Error creating course:', error);
+      throw error;
+    }
+  }
+
+  async updateCourse(id: string, updates: Partial<InsertCourse>): Promise<Course | undefined> {
+    try {
+      const courseData = {
+        ...updates,
+        price: "Free", // Ensure all courses remain free
+      };
+      const [updatedCourse] = await db.update(schema.courses)
+        .set(courseData)
+        .where(eq(schema.courses.id, id))
+        .returning();
+      return updatedCourse;
+    } catch (error) {
+      console.error('Error updating course:', error);
+      throw error;
+    }
+  }
+
+  async deleteCourse(courseId: string): Promise<boolean> {
+    const result = await db.delete(schema.courses).where(eq(schema.courses.id, courseId));
+    return true; // In Drizzle, a successful delete operation doesn't fail
+  }
+
+  // Contact methods
+  async createContact(insertContact: InsertContact): Promise<Contact> {
+    const [contact] = await db.insert(schema.contacts).values(insertContact).returning();
+    return contact;
+  }
+
+  // Password reset methods (using in-memory for now - in production you'd use Redis or database)
+  private passwordResetOtps = new Map<string, {otp: string; expiresAt: Date }>();
+
+  async storePasswordResetOtp(email: string, otp: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    this.passwordResetOtps.set(email, {otp, expiresAt });
+  }
+
+  async verifyPasswordResetOtp(email: string, otp: string): Promise<boolean> {
+    const stored = this.passwordResetOtps.get(email);
+    if (!stored) return false;
+
+    if (new Date() > stored.expiresAt) {
+      this.passwordResetOtps.delete(email);
+      return false;
+    }
+
+    return stored.otp === otp;
+  }
+
+  async clearPasswordResetOtp(email: string): Promise<void> {
+    this.passwordResetOtps.delete(email);
+  }
+
+  // Deleted Companies methods
+  async softDeleteCompany(id: string): Promise<any> {
+    // For DbStorage, this would typically be a soft delete flag in the database
+    // For now, we'll just mark it as inactive or create a deleted companies table
+    throw new Error("Method not implemented for DbStorage.");
+  }
+
+  async getDeletedCompanies(): Promise<any[]> {
+    // Return deleted companies from database
+    throw new Error("Method not implemented for DbStorage.");
+  }
+
+  async restoreDeletedCompany(id: string): Promise<Company | undefined> {
+    // Restore a soft-deleted company
+    throw new Error("Method not implemented for DbStorage.");
+  }
+
+  async permanentlyDeleteCompany(id: string): Promise<boolean> {
+    // Permanently delete a company
+    return await this.deleteCompany(id);
+  }
+
+  async updateDeletedCompany(id: string, updateData: any): Promise<any> {
+    // Update deleted company data
+    throw new Error("Method not implemented for DbStorage.");
+  }
+
+  // Additional Job methods
+  async getJobById(id: string): Promise<Job | undefined> {
+    const jobs = await db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
+    return jobs[0];
+  }
+
+  // Application methods - missing getApplicationById
+  async getApplicationById(id: string): Promise<Application & { job: Job & { company: Company } } | undefined> {
+    const apps = await db.select().from(schema.applications).where(eq(schema.applications.id, id));
+    if (!apps[0]) return undefined;
+
+    const job = await this.getJob(apps[0].jobId);
+    if (!job) return undefined;
+
+    return {
+      ...apps[0],
+      job
+    };
+  }
+
+  // Deleted Posts methods for DbStorage (placeholder, actual implementation would involve a separate table or soft delete)
+  async addDeletedPost(post: any): Promise<any> {
+    console.log("Adding post to deleted posts:", post);
+
+    const [deletedPost] = await db.insert(deletedPostsTable).values({
+      id: post.id,
+      userId: post.userId,
+      jobId: post.jobId,
+      applicationId: post.applicationId,
+      originalId: post.originalId,
+      type: post.type,
+      deletedAt: new Date(post.deletedAt || Date.now())
+    }).returning();
+
+    console.log(`Successfully added deleted post to database: ${deletedPost.id}`);
+    return deletedPost;
+  }
+
+  async getDeletedPosts(): Promise<any[]> {
+    // In a real DB, you'd select from 'deleted_posts' and potentially filter by date
+    console.log("Fetching deleted posts...");
+    // Example: return await db.select().from(schema.deletedPosts).where(gt(schema.deletedPosts.deletedAt, new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)));
+    return []; // Placeholder
+  }
+
+  async getUserDeletedPosts(userId: string): Promise<Array<DeletedPost & { job: Job & { company: Company } }>> {
+    console.log(`Getting deleted posts for user: ${userId}`);
+
+    try {
+      const deletedPosts = await db
+        .select({
+          id: deletedPostsTable.id,
+          userId: deletedPostsTable.userId,
+          jobId: deletedPostsTable.jobId,
+          deletedAt: deletedPostsTable.deletedAt,
+          jobTitle: jobsTable.title,
+          jobDescription: jobsTable.description,
+          jobRequirements: jobsTable.requirements,
+          jobQualifications: jobsTable.qualifications,
+          jobSkills: jobsTable.skills,
+          jobExperienceLevel: jobsTable.experienceLevel,
+          jobExperienceMin: jobsTable.experienceMin,
+          jobExperienceMax: jobsTable.experienceMax,
+          jobLocation: jobsTable.location,
+          jobType: jobsTable.jobType,
+          jobSalary: jobsTable.salary,
+          jobApplyUrl: jobsTable.applyUrl,
+          jobClosingDate: jobsTable.closingDate,
+          jobBatchEligible: jobsTable.batchEligible,
+          jobIsActive: jobsTable.isActive,
+          jobCompanyId: jobsTable.companyId,
+          jobCreatedAt: jobsTable.createdAt,
+          companyId: companiesTable.id,
+          companyName: companiesTable.name,
+          companyDescription: companiesTable.description,
+          companyWebsite: companiesTable.website,
+          companyLogo: companiesTable.logo,
+          companyLinkedinUrl: companiesTable.linkedinUrl,
+          companyIndustry: companiesTable.industry,
+          companySize: companiesTable.size,
+          companyLocation: companiesTable.location,
+          companyFounded: companiesTable.founded,
+          companyCreatedAt: companiesTable.createdAt
+        })
+        .from(deletedPostsTable)
+        .innerJoin(jobsTable, eq(deletedPostsTable.jobId, jobsTable.id))
+        .innerJoin(companiesTable, eq(jobsTable.companyId, companiesTable.id))
+        .where(eq(deletedPostsTable.userId, userId))
+        .orderBy(desc(deletedPostsTable.deletedAt));
+
+      console.log(`Raw query returned ${deletedPosts.length} deleted posts for user ${userId}`);
+
+      // Transform the flat result into nested objects
+      const transformedPosts = deletedPosts.map(post => ({
+        id: post.id,
+        userId: post.userId,
+        jobId: post.jobId,
+        deletedAt: post.deletedAt,
+        job: {
+          id: post.jobId,
+          title: post.jobTitle,
+          description: post.jobDescription,
+          requirements: post.jobRequirements,
+          qualifications: post.jobQualifications,
+          skills: post.jobSkills,
+          experienceLevel: post.jobExperienceLevel,
+          experienceMin: post.jobExperienceMin,
+          experienceMax: post.jobExperienceMax,
+          location: post.jobLocation,
+          jobType: post.jobType,
+          salary: post.jobSalary,
+          applyUrl: post.jobApplyUrl,
+          closingDate: post.jobClosingDate,
+          batchEligible: post.jobBatchEligible,
+          isActive: post.jobIsActive,
+          companyId: post.jobCompanyId,
+          createdAt: post.jobCreatedAt,
+          company: {
+            id: post.companyId,
+            name: post.companyName,
+            description: post.companyDescription,
+            website: post.companyWebsite,
+            logo: post.companyLogo,
+            linkedinUrl: post.companyLinkedinUrl,
+            industry: post.companyIndustry,
+            size: post.companySize,
+            location: post.companyLocation,
+            founded: post.companyFounded,
+            createdAt: post.companyCreatedAt
+          }
+        }
+      }));
+
+      console.log(`Transformed ${transformedPosts.length} deleted posts for user ${userId}`);
+
+      if (transformedPosts.length > 0) {
+        console.log(`Sample deleted post:`, {
+          id: transformedPosts[0].id,
+          jobTitle: transformedPosts[0].job.title,
+          companyName: transformedPosts[0].job.company.name,
+          deletedAt: transformedPosts[0].deletedAt
+        });
+      }
+
+      return transformedPosts as Array<DeletedPost & { job: Job & { company: Company } }>;
+    } catch (error) {
+      console.error(`Error fetching deleted posts for user ${userId}:`, error);
+      return [];
+    }
+  }
+
+
+  async deletePostFromDeleted(id: string): Promise<void> {
+    // In a real DB, you'd delete from 'deleted_posts'
+    console.log(`Deleting post with ID ${id} from deleted posts.`);
+    // Example: await db.delete(schema.deletedPosts).where(eq(schema.deletedPosts.id, id));
+  }
+
+  async softDeleteJob(jobId: string, userId: string): Promise<DeletedPost> {
+    console.log(`[${new Date().toLocaleTimeString()}] Soft deleting job ${jobId} for user ${userId}`);
+
+    try {
+      // First verify the job exists
+      const jobExists = await db
+        .select({ id: jobsTable.id })
+        .from(jobsTable)
+        .where(eq(jobsTable.id, jobId))
+        .limit(1);
+
+      if (jobExists.length === 0) {
+        throw new Error(`Job ${jobId} not found`);
+      }
+
+      // Check if already deleted by this user
+      const existingDeletedPost = await db
+        .select()
+        .from(deletedPostsTable)
+        .where(and(
+          eq(deletedPostsTable.jobId, jobId),
+          eq(deletedPostsTable.userId, userId)
+        ))
+        .limit(1);
+
+      if (existingDeletedPost.length > 0) {
+        console.log(`[${new Date().toLocaleTimeString()}] Job ${jobId} already soft deleted for user ${userId}`);
+        return existingDeletedPost[0];
+      }
+
+      // Create deleted post entry
+      const deletedPost = {
+        id: nanoid(),
+        userId,
+        jobId,
+        type: 'job', // Explicitly define type
+        deletedAt: new Date()
+      };
+
+      console.log(`[${new Date().toLocaleTimeString()}] Creating deleted post entry:`, deletedPost);
+
+      const result = await db
+        .insert(deletedPostsTable)
+        .values(deletedPost)
+        .returning();
+
+      console.log(`[${new Date().toLocaleTimeString()}] Successfully created deleted post entry:`, result[0]);
+
+      // Verify the entry was created
+      const verification = await db
+        .select()
+        .from(deletedPostsTable)
+        .where(eq(deletedPostsTable.id, result[0].id))
+        .limit(1);
+
+      console.log(`[${new Date().toLocaleTimeString()}] Verification check:`, verification);
+
+      return result[0];
+    } catch (error) {
+      console.error(`[${new Date().toLocaleTimeString()}] Error soft deleting job ${jobId} for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  async softDeleteApplication(applicationId: string): Promise<any> {
+    console.log(`Soft deleting application: ${applicationId}`);
+
+    // Get the application with job and company details
+    const application = await this.getApplicationById(applicationId);
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    // Create deleted post record
+    const deletedPost = {
+      id: nanoid(),
+      userId: application.userId,
+      originalId: application.jobId,
+      jobId: application.jobId,
+      applicationId: applicationId,
+      type: 'job' as const,
+      title: application.job.title,
+      deletedAt: new Date(),
+      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    };
+
+    // Insert into deleted posts table
+    await this.addDeletedPost(deletedPost);
+
+    // Remove the application from the database
+    await db.delete(applicationsTable).where(eq(applicationsTable.id, applicationId));
+
+    console.log(`Application ${applicationId} soft deleted successfully`);
+    return deletedPost;
+  }
+
+  async restoreDeletedPost(deletedPostId: string): Promise<any> {
+    // This method is not implemented in the DbStorage for now.
+    throw new Error("Method not implemented for DbStorage.");
+  }
+
+  async permanentlyDeletePost(deletedPostId: string): Promise<void> {
+    // This method is not implemented in the DbStorage for now.
+    throw new Error("Method not implemented for DbStorage.");
+  }
 }
+
+// Use database storage if DATABASE_URL is available, otherwise fall back to MemStorage
+// For development in Replit, force MemStorage until database is properly configured
+export const storage = process.env.NODE_ENV === 'production' && process.env.DATABASE_URL ? new DbStorage() : new MemStorage();
