@@ -78,16 +78,14 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
       let errorMessage = `HTTP error! status: ${response.status}`;
       
       try {
-        // Clone the response before trying to read it
-        const responseClone = response.clone();
         const contentType = response.headers.get('content-type');
         
         if (contentType && contentType.includes('application/json')) {
-          const errorData = await responseClone.json();
+          const errorData = await response.json();
           errorMessage = errorData.message || errorData.error || errorMessage;
           console.error('Error data:', errorData);
         } else {
-          const errorText = await responseClone.text();
+          const errorText = await response.text();
           console.error('Error text:', errorText);
           if (errorText && errorText.length > 0) {
             errorMessage = errorText;
