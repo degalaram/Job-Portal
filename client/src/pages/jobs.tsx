@@ -8,7 +8,7 @@ import { Card, CardContent, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest } from '@/lib/api';
 import { Navbar } from '@/components/job-portal/navbar';
 import {
   Search,
@@ -347,22 +347,8 @@ export default function Jobs() {
 
       // Use the correct delete endpoint and send user-id in headers as expected by backend
       const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = 'Failed to delete job';
-
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          console.error('Server returned non-JSON response:', errorText);
-          errorMessage = 'Server error occurred';
-        }
-
-        throw new Error(errorMessage);
-      }
-
+      
+      // apiRequest already handles error responses properly, so we just need to parse the JSON
       return response.json();
     },
     onSuccess: () => {
