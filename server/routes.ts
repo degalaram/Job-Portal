@@ -228,6 +228,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Soft delete a job (hide from user's view)
   app.post('/api/jobs/:jobId/delete', async (req, res) => {
+    // Set proper headers first
+    res.setHeader('Content-Type', 'application/json');
+    
     console.log(`[JOB DELETE] ${new Date().toISOString()} - DELETE request received`);
     console.log(`[JOB DELETE] Params:`, req.params);
     console.log(`[JOB DELETE] Body:`, req.body);
@@ -239,7 +242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[JOB DELETE] Processing: jobId=${jobId}, userId=${userId}`);
 
-      // Validate inputs
+      // Validate inputs with proper error responses
       if (!userId || userId.trim() === '') {
         console.log('[JOB DELETE] User ID missing or empty');
         return res.status(400).json({ 
@@ -295,7 +298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[JOB DELETE] Soft delete successful:`, deletedPost);
 
-      return res.status(200).json({ 
+      res.status(200).json({ 
         message: 'Job deleted successfully',
         deletedPost: deletedPost,
         success: true,
@@ -312,7 +315,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.error('[JOB DELETE] Error stack:', errorStack);
       
-      return res.status(500).json({ 
+      // Ensure we return JSON even on error
+      res.status(500).json({ 
         error: 'Failed to delete job', 
         message: errorMessage,
         success: false,
