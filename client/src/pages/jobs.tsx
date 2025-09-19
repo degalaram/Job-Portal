@@ -373,12 +373,19 @@ export default function Jobs() {
         const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         const actualUserId = currentUser.id || userId;
         
+        if (!actualUserId) {
+          throw new Error('User ID not found in localStorage');
+        }
+        
         console.log(`[DELETE] Using user ID: ${actualUserId}`);
         console.log(`[DELETE] Making request to: /api/jobs/${jobId}/delete`);
         
-        // Make the delete request
+        // Make the delete request with explicit headers and body
         const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
-          { userId: actualUserId }, 
+          { 
+            userId: actualUserId,
+            jobId: jobId  // Include jobId in body as well
+          }, 
           { 
             'user-id': actualUserId,
             'Content-Type': 'application/json',
@@ -390,6 +397,11 @@ export default function Jobs() {
         
         const result = await response.json();
         console.log('[DELETE] Response data:', result);
+        
+        if (!result.success) {
+          throw new Error(result.message || result.error || 'Delete operation failed');
+        }
+        
         return result;
       } catch (error) {
         console.error('[DELETE] Delete operation failed:', error);
@@ -404,6 +416,8 @@ export default function Jobs() {
             throw new Error('Server error occurred. Please try again.');
           } else if (error.message.includes('timeout')) {
             throw new Error('Request timed out. Please check your connection and try again.');
+          } else if (error.message.includes('HTML error page')) {
+            throw new Error('Server configuration error. Please contact support.');
           }
         }
         
