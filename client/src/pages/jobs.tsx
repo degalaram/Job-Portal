@@ -347,15 +347,35 @@ export default function Jobs() {
 
       console.log(`Attempting to delete job ${jobId} for user ${userId}`);
       
-      // Use the correct delete endpoint and send user-id in headers as expected by backend
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId }, { 'user-id': userId });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Failed to delete job: ${response.status}`);
+      try {
+        // Use the correct delete endpoint with proper headers and body
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
+          { userId }, 
+          { 
+            'user-id': userId,
+            'Content-Type': 'application/json'
+          }
+        );
+        
+        if (!response.ok) {
+          let errorMessage = `Failed to delete job: ${response.status}`;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch {
+            const errorText = await response.text();
+            errorMessage = errorText || errorMessage;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const result = await response.json();
+        console.log('Delete job response:', result);
+        return result;
+      } catch (error) {
+        console.error('Delete job mutation error:', error);
+        throw error;
       }
-      
-      return response.json();
     },
     onSuccess: () => {
       // Update the UI by invalidating queries (tab already switched)
