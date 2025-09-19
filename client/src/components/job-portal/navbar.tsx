@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
@@ -17,6 +18,20 @@ import {
   Menu, 
   X, 
   User, 
+  LogOut,
+  BookOpen,
+  FolderOpen,
+  Phone,
+  Plus,
+  Building,
+  FileText,
+  Linkedin,
+  Twitter,
+  Youtube,
+  Mail,
+  Trash2
+} from 'lucide-react';
+import { Link } from 'wouter';
 
 // Component to show deleted posts count
 function DeletedPostsCounter({ userId }: { userId?: string }) {
@@ -45,22 +60,6 @@ function DeletedPostsCounter({ userId }: { userId?: string }) {
     </span>
   );
 }
-
-
-  LogOut,
-  BookOpen,
-  FolderOpen,
-  Phone,
-  Plus,
-  Building,
-  FileText,
-  Linkedin,
-  Twitter,
-  Youtube,
-  Mail,
-  Trash2
-} from 'lucide-react';
-import { Link } from 'wouter';
 
 export function Navbar() {
   const [, navigate] = useLocation();
