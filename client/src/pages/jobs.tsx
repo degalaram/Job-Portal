@@ -426,6 +426,9 @@ export default function Jobs() {
     onSuccess: (data) => {
       console.log('[DELETE] Soft delete successful:', data);
       
+      // Set flag in localStorage to trigger refresh in deleted posts page
+      localStorage.setItem('job_deleted', 'true');
+      
       // Force refresh all related queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
@@ -434,6 +437,7 @@ export default function Jobs() {
       // Also refetch immediately
       queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
       queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
 
       toast({
         title: 'Job moved to trash',
