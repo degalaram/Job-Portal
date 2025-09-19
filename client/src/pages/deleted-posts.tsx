@@ -73,25 +73,41 @@ export default function DeletedPosts() {
             return [];
           }
           
-          const errorText = await response.text();
-          throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorText}`);
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('API Error:', errorData);
+          
+          if (response.status === 500) {
+            console.warn('Server error, returning empty array to prevent UI breaking');
+            return [];
+          }
+          
+          throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorData.message || errorData.error}`);
         }
         
         const data = await response.json();
         console.log('Deleted posts received:', data);
         
-        return Array.isArray(data) ? data : [];
+        // Ensure we return an array
+        if (!Array.isArray(data)) {
+          console.warn('API returned non-array data:', data);
+          return [];
+        }
+        
+        console.log(`Successfully loaded ${data.length} deleted posts`);
+        return data;
       } catch (error) {
         console.error('Error fetching deleted posts:', error);
-        throw error;
+        // Return empty array instead of throwing to prevent breaking the UI
+        return [];
       }
     },
     enabled: !!user?.id && !userLoading,
-    retry: 3,
-    retryDelay: 1000,
-    refetchInterval: 10000, // Refresh every 10 seconds
+    retry: 2, // Reduce retries to avoid too many failed requests
+    retryDelay: 2000,
+    refetchInterval: 15000, // Refresh every 15 seconds
     refetchOnWindowFocus: true,
     refetchOnMount: true,
+    staleTime: 0, // Always fetch fresh data
   });
 
   // Listen for storage changes to refresh when jobs are deleted
