@@ -247,14 +247,14 @@ export default function Jobs() {
           navigate('/login');
           return;
         }
-        
+
         const parsedUser = JSON.parse(userString);
         if (!parsedUser || !parsedUser.id) {
           console.log('Invalid user data, redirecting to login');
           navigate('/login');
           return;
         }
-        
+
         setUser(parsedUser);
         setIsAuthChecked(true);
       } catch (error) {
@@ -371,7 +371,7 @@ export default function Jobs() {
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
-      
+
       toast({
         title: 'Job deleted successfully',
         description: 'The job has been moved to deleted posts and can be restored within 5 days.',
