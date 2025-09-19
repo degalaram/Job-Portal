@@ -273,6 +273,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Create application if user hasn't applied yet (this ensures there's something to "delete")
+      try {
+        const userApplications = await storage.getUserApplications(userId);
+        const existingApplication = userApplications.find(app => app.job.id === jobId);
+        
+        if (!existingApplication) {
+          console.log(`[JOB DELETE] Creating application first for user ${userId} and job ${jobId}`);
+          await storage.createApplication({
+            userId: userId,
+            jobId: jobId,
+            status: 'applied'
+          });
+        }
+      } catch (appError) {
+        console.log(`[JOB DELETE] Could not create application, continuing: ${appError}`);
+      }
+
       // Perform soft delete (this will handle checking if job exists and if already deleted)
       console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
       const deletedPost = await storage.softDeleteJob(jobId, userId);
@@ -283,6 +300,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: deletedPost.userId,
         title: deletedPost.title || deletedPost.job?.title
       });
+
+      // Trigger browser storage event to refresh deleted posts
+      console.log(`[JOB DELETE] Setting browser refresh flag for deleted posts`);
 
       res.status(200).json({ 
         message: 'Job moved to trash successfully',
@@ -396,6 +416,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error soft deleting application:", error);
       res.status(500).json({ message: "Failed to delete post" });
+    }
+  });
+
+  // Debug endpoint for deleted posts
+  app.get("/api/debug/deleted-posts/:userId", async (req, res) => {
+    const { userId } = req.params;
+    console.log(`[DEBUG] Getting debug info for deleted posts for user ${userId}`);
+
+    try {
+      // Get all deleted posts from storage
+      const allDeletedPosts = await storage.getDeletedPosts();
+      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
+      
+      const debugInfo = {
+        userId: userId,
+        timestamp: new Date().toISOString(),
+        allDeletedPostsCount: allDeletedPosts.length,
+        userDeletedPostsCount: userDeletedPosts.length,
+        allDeletedPosts: allDeletedPosts.map(post => ({
+          id: post.id,
+          userId: post.userId,
+          jobId: post.jobId,
+          title: post.title,
+          deletedAt: post.deletedAt
+        })),
+        userDeletedPosts: userDeletedPosts.map(post => ({
+          id: post.id,
+          userId: post.userId,
+          jobId: post.jobId,
+          title: post.title,
+          deletedAt: post.deletedAt,
+          hasJobData: !!post.job,
+          hasCompanyData: !!post.company
+        }))
+      };
+      
+      console.log(`[DEBUG] Debug info:`, debugInfo);
+      res.json(debugInfo);
+    } catch (error) {
+      console.error(`[DEBUG] Error getting debug info:`, error);
+      res.status(500).json({ error: 'Debug failed', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
