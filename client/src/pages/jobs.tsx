@@ -9,6 +9,26 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/api';
+
+// Get the API URL for debugging
+const API_URL = (() => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (window.location.hostname.includes('replit.dev') || 
+      window.location.hostname.includes('repl.co') || 
+      window.location.hostname.includes('replit.app') ||
+      window.location.hostname.includes('pike.replit.dev') ||
+      window.location.hostname.includes('projectnow.pages.dev') ||
+      window.location.port === '' ||
+      window.location.protocol === 'https:') {
+    return window.location.origin;
+  }
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return "http://localhost:5000";
+  }
+  return window.location.origin;
+})();
 import { Navbar } from '@/components/job-portal/navbar';
 import {
   Search,
@@ -345,40 +365,57 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
-      console.log(`Attempting to delete job ${jobId} for user ${userId}`);
+      console.log(`[DELETE] Attempting to delete job ${jobId} for user ${userId}`);
+      console.log(`[DELETE] API URL being used: ${API_URL || window.location.origin}`);
       
       try {
+        // Ensure we're using the current user data
+        const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        const actualUserId = currentUser.id || userId;
+        
+        console.log(`[DELETE] Using user ID: ${actualUserId}`);
+        
         // Use the correct delete endpoint with proper headers and body
         const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
-          { userId }, 
+          { userId: actualUserId }, 
           { 
-            'user-id': userId,
-            'Content-Type': 'application/json'
+            'user-id': actualUserId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           }
         );
+        
+        console.log(`[DELETE] Response received:`, response.status, response.statusText);
         
         if (!response.ok) {
           let errorMessage = `Failed to delete job: ${response.status}`;
           try {
-            const errorData = await response.json();
+            const errorData = await response.clone().json();
             errorMessage = errorData.error || errorData.message || errorMessage;
+            console.error('[DELETE] Error data:', errorData);
           } catch {
-            const errorText = await response.text();
-            errorMessage = errorText || errorMessage;
+            try {
+              const errorText = await response.clone().text();
+              errorMessage = errorText || errorMessage;
+              console.error('[DELETE] Error text:', errorText);
+            } catch (textError) {
+              console.error('[DELETE] Could not read error response:', textError);
+            }
           }
           throw new Error(errorMessage);
         }
         
         const result = await response.json();
-        console.log('Delete job response:', result);
+        console.log('[DELETE] Success response:', result);
         return result;
       } catch (error) {
-        console.error('Delete job mutation error:', error);
+        console.error('[DELETE] Mutation error:', error);
         throw error;
       }
     },
-    onSuccess: () => {
-      // Update the UI by invalidating queries (tab already switched)
+    onSuccess: (data) => {
+      console.log('[DELETE] Mutation succeeded:', data);
+      // Update the UI by invalidating queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
@@ -390,10 +427,10 @@ export default function Jobs() {
       });
     },
     onError: (error: any) => {
-      console.error('Delete job error:', error);
+      console.error('[DELETE] Mutation failed:', error);
       toast({
         title: 'Delete failed',
-        description: error.message || 'Failed to delete job',
+        description: error?.message || 'Failed to delete job. Please try again.',
         variant: 'destructive',
       });
     },
@@ -464,13 +501,28 @@ export default function Jobs() {
 
   const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
+    e.preventDefault();
+    
     if (!user || !user.id) {
+      console.log('[DELETE HANDLER] No user found, redirecting to login');
       navigate('/login');
       return;
     }
+    
+    console.log(`[DELETE HANDLER] Deleting job ${jobId} for user ${user.id}`);
+    
     if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
-      // Perform deletion and let the success handler manage UI updates
-      deleteJobMutation.mutate({ jobId, userId: user.id });
+      try {
+        // Perform deletion and let the success handler manage UI updates
+        deleteJobMutation.mutate({ jobId, userId: user.id });
+      } catch (error) {
+        console.error('[DELETE HANDLER] Error during mutation:', error);
+        toast({
+          title: 'Delete failed',
+          description: 'Something went wrong. Please try again.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
