@@ -59,97 +59,131 @@ export default function DeletedPosts() {
     queryKey: ['deleted-posts', user?.id],
     queryFn: async () => {
       if (!user?.id) {
-        console.log('No user ID available');
+        console.log('[DELETED POSTS] No user ID available for fetching deleted posts');
         return [];
       }
       
-      console.log(`Fetching deleted posts for user: ${user.id}`);
+      console.log(`[DELETED POSTS] Fetching deleted posts for user: ${user.id} at ${new Date().toISOString()}`);
       
       try {
         const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}`, undefined, {
           'user-id': user.id,
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         });
         
-        console.log('API Response status:', response.status);
+        console.log(`[DELETED POSTS] API Response status: ${response.status}`);
         
         if (!response.ok) {
           if (response.status === 404) {
-            console.log('No deleted posts found for user');
+            console.log('[DELETED POSTS] No deleted posts found (404), returning empty array');
             return [];
           }
           
-          console.warn(`API error ${response.status}, returning empty array`);
+          console.warn(`[DELETED POSTS] API error ${response.status}, returning empty array`);
           return [];
         }
         
         const data = await response.json();
-        console.log('Deleted posts received:', data);
+        console.log(`[DELETED POSTS] Raw API response:`, data);
         
         // Ensure we return an array
         if (!Array.isArray(data)) {
-          console.warn('API returned non-array data:', data);
+          console.warn('[DELETED POSTS] API returned non-array data:', data);
           return [];
         }
         
-        console.log(`Successfully loaded ${data.length} deleted posts`);
+        console.log(`[DELETED POSTS] Successfully loaded ${data.length} deleted posts for user ${user.id}`);
+        
+        if (data.length > 0) {
+          console.log('[DELETED POSTS] Sample posts:', data.map(post => ({
+            id: post.id,
+            title: post.title,
+            company: post.company?.name,
+            deletedAt: post.deletedAt
+          })));
+        }
+        
         return data;
       } catch (error) {
-        console.error('Error fetching deleted posts:', error);
+        console.error('[DELETED POSTS] Error fetching deleted posts:', error);
         // Return empty array instead of throwing to prevent unhandled rejections
         return [];
       }
     },
     enabled: !!user?.id && !userLoading,
-    retry: 1,
-    retryDelay: 1000,
-    refetchInterval: false, // Remove auto-refresh to reduce load
-    refetchOnWindowFocus: false,
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    refetchInterval: 5000, // Refresh every 5 seconds to catch new deletions
+    refetchOnWindowFocus: true,
     refetchOnMount: true,
     staleTime: 0, // Always fetch fresh data
     throwOnError: false, // Prevent unhandled promise rejections
   });
 
-  // Listen for storage changes to refresh when jobs are deleted
+  // Listen for storage changes and other events to refresh when jobs are deleted
   useEffect(() => {
+    if (!user?.id) return;
+
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'job_deleted' && user?.id) {
-        console.log('Job deletion detected, refreshing deleted posts');
+        console.log(`[DELETED POSTS] Job deletion detected via storage event for user ${user.id}`);
         setTimeout(() => {
+          console.log(`[DELETED POSTS] Triggering refetch after job deletion`);
           refetch().catch((error) => {
-            console.error('Error refetching after job deletion:', error);
+            console.error('[DELETED POSTS] Error refetching after job deletion:', error);
           });
-        }, 500); // Small delay to ensure server has processed the deletion
+        }, 1000); // Increased delay to ensure server has processed the deletion
         // Clear the flag
         localStorage.removeItem('job_deleted');
       }
     };
 
-    // Also check for the flag on mount in case we missed the storage event
-    const checkDeletedFlag = () => {
-      if (localStorage.getItem('job_deleted') && user?.id) {
-        console.log('Found job_deleted flag on mount, refreshing');
+    // Check for deletion flags on mount and periodically
+    const checkDeletedFlags = () => {
+      const jobDeleted = localStorage.getItem('job_deleted');
+      const deletedJobId = localStorage.getItem('deleted_job_id');
+      const deletedUserId = localStorage.getItem('deleted_user_id');
+      
+      if (jobDeleted && user?.id === deletedUserId) {
+        console.log(`[DELETED POSTS] Found job_deleted flag on check for user ${user.id}, job ${deletedJobId}`);
         setTimeout(() => {
+          console.log(`[DELETED POSTS] Triggering refetch from flag check`);
           refetch().catch((error) => {
-            console.error('Error refetching on mount:', error);
+            console.error('[DELETED POSTS] Error refetching from flag check:', error);
           });
-        }, 500);
+        }, 1000);
+        // Clear all the flags
         localStorage.removeItem('job_deleted');
+        localStorage.removeItem('deleted_job_id');
+        localStorage.removeItem('deleted_user_id');
+        localStorage.removeItem('job_deleted_timestamp');
       }
     };
 
-    checkDeletedFlag();
+    // Check on mount
+    checkDeletedFlags();
+    
+    // Set up periodic check every 2 seconds
+    const intervalId = setInterval(checkDeletedFlags, 2000);
+
+    // Event listeners
     window.addEventListener('storage', handleStorageChange);
     
-    // Also listen for custom events
-    const handleCustomRefresh = () => {
-      console.log('Custom refresh event detected');
-      refetch().catch(console.error);
+    // Listen for custom events
+    const handleCustomRefresh = (event: any) => {
+      console.log(`[DELETED POSTS] Custom refresh event detected:`, event.detail);
+      setTimeout(() => {
+        console.log(`[DELETED POSTS] Triggering refetch from custom event`);
+        refetch().catch(console.error);
+      }, 1000);
     };
     
     window.addEventListener('refreshDeletedPosts', handleCustomRefresh);
     
     return () => {
+      clearInterval(intervalId);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('refreshDeletedPosts', handleCustomRefresh);
     };
@@ -328,15 +362,28 @@ export default function DeletedPosts() {
               Posts will be permanently deleted after 5 days
             </p>
           </div>
-          <div className="bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-800">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {deletedPosts.length}
-              </div>
-              <div className="text-sm text-red-600 dark:text-red-400 font-medium">
-                Deleted Posts
+          <div className="flex flex-col gap-2">
+            <div className="bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-800">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                  {deletedPosts.length}
+                </div>
+                <div className="text-sm text-red-600 dark:text-red-400 font-medium">
+                  Deleted Posts
+                </div>
               </div>
             </div>
+            <Button 
+              onClick={() => {
+                console.log('[DELETED POSTS] Manual refresh triggered');
+                refetch();
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs"
+            >
+              🔄 Refresh
+            </Button>
           </div>
         </div>
 
