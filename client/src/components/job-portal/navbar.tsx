@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { 
   DropdownMenu,
@@ -15,6 +17,36 @@ import {
   Menu, 
   X, 
   User, 
+
+// Component to show deleted posts count
+function DeletedPostsCounter({ userId }: { userId?: string }) {
+  const { data: deletedPosts = [] } = useQuery({
+    queryKey: ['deleted-posts-count', userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      try {
+        const response = await apiRequest('GET', `/api/deleted-posts/user/${userId}`);
+        if (!response.ok) return [];
+        return response.json();
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!userId,
+    staleTime: 5000,
+    refetchInterval: 10000,
+  });
+
+  if (!deletedPosts || deletedPosts.length === 0) return null;
+
+  return (
+    <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center">
+      {deletedPosts.length}
+    </span>
+  );
+}
+
+
   LogOut,
   BookOpen,
   FolderOpen,
@@ -123,9 +155,13 @@ export function Navbar() {
                     <DropdownMenuItem 
                       onClick={() => navigate('/deleted-posts')}
                       data-testid="deleted-posts-menu-item"
+                      className="flex items-center justify-between"
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Deleted Posts
+                      <div className="flex items-center">
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Deleted Posts
+                      </div>
+                      <DeletedPostsCounter userId={user?.id} />
                     </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={() => navigate('/deleted-companies')}
