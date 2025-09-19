@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,8 +14,8 @@ const API_URL = (() => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
-  if (window.location.hostname.includes('replit.dev') || 
-      window.location.hostname.includes('repl.co') || 
+  if (window.location.hostname.includes('replit.dev') ||
+      window.location.hostname.includes('repl.co') ||
       window.location.hostname.includes('replit.app') ||
       window.location.hostname.includes('pike.replit.dev') ||
       window.location.hostname.includes('projectnow.pages.dev') ||
@@ -366,45 +365,45 @@ export default function Jobs() {
       }
 
       console.log(`[DELETE] Starting soft delete operation for job ${jobId} and user ${userId}`);
-      
+
       try {
         // Get the most current user data
         const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         const actualUserId = currentUser.id || userId;
-        
+
         if (!actualUserId) {
           throw new Error('User ID not found in localStorage');
         }
-        
+
         console.log(`[DELETE] Using user ID: ${actualUserId}`);
         console.log(`[DELETE] Making soft delete request to: /api/jobs/${jobId}/soft-delete`);
-        
+
         // Make the soft delete request (similar to companies)
-        const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, 
-          { 
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`,
+          {
             userId: actualUserId
-          }, 
-          { 
+          },
+          {
             'user-id': actualUserId,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           }
         );
-        
+
         console.log(`[DELETE] Response status: ${response.status}`);
-        
+
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Failed to delete job: ${errorText}`);
         }
-        
+
         const result = await response.json();
         console.log('[DELETE] Response data:', result);
-        
+
         return result;
       } catch (error) {
         console.error('[DELETE] Delete operation failed:', error);
-        
+
         // Provide more specific error messages
         if (error instanceof Error) {
           if (error.message.includes('404')) {
@@ -419,21 +418,21 @@ export default function Jobs() {
             throw new Error('Server configuration error. Please contact support.');
           }
         }
-        
+
         throw error;
       }
     },
     onSuccess: (data) => {
       console.log('[DELETE] Soft delete successful:', data);
-      
+
       // Set flag in localStorage to trigger refresh in deleted posts page
       localStorage.setItem('job_deleted', 'true');
-      
+
       // Force refresh all related queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      
+
       // Also refetch immediately
       queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
       queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
@@ -478,7 +477,7 @@ export default function Jobs() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">Failed to connect to the server. Please try again later.</p>
-            <button 
+            <button
               onClick={() => refetch()}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
               data-testid="button-retry"
@@ -520,9 +519,9 @@ export default function Jobs() {
   const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
     e.preventDefault();
-    
+
     console.log(`[DELETE HANDLER] Delete button clicked for job: ${jobId}`);
-    
+
     if (!user || !user.id) {
       console.log('[DELETE HANDLER] No user found, redirecting to login');
       toast({
@@ -533,7 +532,7 @@ export default function Jobs() {
       navigate('/login');
       return;
     }
-    
+
     // Validate job ID
     if (!jobId || jobId.trim() === '') {
       console.error('[DELETE HANDLER] Invalid job ID:', jobId);
@@ -544,19 +543,19 @@ export default function Jobs() {
       });
       return;
     }
-    
+
     console.log(`[DELETE HANDLER] Confirmed: Deleting job ${jobId} for user ${user.id}`);
     console.log(`[DELETE HANDLER] User data:`, { id: user.id, email: user.email });
-    
+
     if (window.confirm('Are you sure you want to move this job to trash? It will be moved to deleted posts and can be restored within 5 days.')) {
       console.log(`[DELETE HANDLER] User confirmed deletion for job ${jobId}`);
-      
+
       // Show loading state
       toast({
         title: 'Deleting job...',
         description: 'Please wait while we process your request.',
       });
-      
+
       // Perform deletion
       deleteJobMutation.mutate({ jobId, userId: user.id });
     } else {
@@ -615,7 +614,7 @@ export default function Jobs() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navbar />
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
@@ -674,8 +673,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('all')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'all' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'all'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-all-jobs"
@@ -685,8 +684,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('fresher')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'fresher' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'fresher'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-fresher-jobs"
@@ -696,8 +695,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('experienced')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'experienced' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'experienced'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-experienced-jobs"
@@ -707,8 +706,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('expired')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'expired' 
-                    ? 'bg-primary text-primary-foreground shadow' 
+                  activeTab === 'expired'
+                    ? 'bg-primary text-primary-foreground shadow'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-expired-jobs"
@@ -761,8 +760,8 @@ export default function Jobs() {
                             {/* Left Company Logo */}
                             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
                               {job.company.logo || getCompanyLogo(job.company) ? (
-                                <img 
-                                  src={job.company.logo || getCompanyLogo(job.company)!} 
+                                <img
+                                  src={job.company.logo || getCompanyLogo(job.company)!}
                                   alt={job.company.name}
                                   className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
                                   onError={(e) => {
@@ -799,8 +798,8 @@ export default function Jobs() {
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
                             {job.company.logo || getCompanyLogo(job.company) ? (
-                              <img 
-                                src={job.company.logo || getCompanyLogo(job.company)!} 
+                              <img
+                                src={job.company.logo || getCompanyLogo(job.company)!}
                                 alt={job.company.name}
                                 className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
                                 onError={(e) => {
