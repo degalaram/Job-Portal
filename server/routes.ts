@@ -382,11 +382,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get deleted posts for a user
   app.get("/api/deleted-posts/user/:userId", async (req, res) => {
     const { userId } = req.params;
-    console.log(`[DELETED POSTS API] Getting deleted posts for user ${userId}`);
+    console.log(`[DELETED POSTS API] ${new Date().toISOString()} - Getting deleted posts for user ${userId}`);
 
     // Set proper headers first
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, user-id');
 
     try {
       if (!userId || userId.trim() === '') {
@@ -395,8 +398,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[DELETED POSTS API] Fetching from storage for user: ${userId}`);
-      const deletedPosts = await storage.getUserDeletedPosts(userId);
-      console.log(`[DELETED POSTS API] Found ${deletedPosts.length} deleted posts`);
+      
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const deletedPostsPromise = storage.getUserDeletedPosts(userId);
+      const deletedPosts = await Promise.race([deletedPostsPromise, timeoutPromise]);
+      
+      console.log(`[DELETED POSTS API] Found ${Array.isArray(deletedPosts) ? deletedPosts.length : 'non-array'} deleted posts`);
 
       // Ensure we always return an array
       if (!Array.isArray(deletedPosts)) {
@@ -410,7 +421,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('[DELETED POSTS API] Sample deleted post:', {
           id: deletedPosts[0].id,
           jobTitle: deletedPosts[0].title || deletedPosts[0].job?.title,
-          deletedAt: deletedPosts[0].deletedAt
+          deletedAt: deletedPosts[0].deletedAt,
+          hasJobData: !!deletedPosts[0].job
         });
       }
 
@@ -418,12 +430,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
       
-      // Return error as JSON for proper debugging
-      res.status(500).json({ 
+      // Return detailed error information
+      const errorDetails = {
         error: 'Failed to fetch deleted posts',
         message: error instanceof Error ? error.message : 'Unknown error',
-        userId: userId
-      });
+        userId: userId,
+        timestamp: new Date().toISOString(),
+        stack: error instanceof Error ? error.stack : undefined
+      };
+      
+      res.status(500).json(errorDetails);
     }
   });
 
