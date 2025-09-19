@@ -1176,9 +1176,23 @@ export class MemStorage implements IStorage {
   }
 
   async softDeleteJob(jobId: string, userId: string): Promise<any> {
+    console.log(`[STORAGE] softDeleteJob called with jobId: ${jobId}, userId: ${userId}`);
+    
+    if (!jobId || !userId) {
+      throw new Error('JobId and userId are required for soft delete');
+    }
+    
     const jobWithCompany = await this.getJob(jobId);
     if (!jobWithCompany) {
-      throw new Error('Job not found');
+      console.log(`[STORAGE] Job not found: ${jobId}`);
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    console.log(`[STORAGE] Job found: ${jobWithCompany.title} by ${jobWithCompany.company.name}`);
+
+    // Initialize deletedPosts if not exists
+    if (!this.deletedPosts) {
+      this.deletedPosts = new Map<string, any>();
     }
 
     // Check if already deleted by this user
@@ -1187,7 +1201,7 @@ export class MemStorage implements IStorage {
     );
     
     if (existingDeleted) {
-      console.log(`Job ${jobId} already deleted for user ${userId}`);
+      console.log(`[STORAGE] Job ${jobId} already deleted for user ${userId}`);
       return existingDeleted;
     }
 
@@ -1207,13 +1221,13 @@ export class MemStorage implements IStorage {
         };
         await this.createApplication(newApplication);
         applicationId = newApplication.id;
-        console.log(`Created application for user ${userId} and job ${jobId}`);
+        console.log(`[STORAGE] Created application for user ${userId} and job ${jobId}`);
       } catch (appError) {
-        console.log(`Failed to create application, continuing without: ${appError}`);
+        console.log(`[STORAGE] Failed to create application, continuing without: ${appError}`);
       }
     } else {
       applicationId = existingApplication.id;
-      console.log(`Using existing application: ${applicationId}`);
+      console.log(`[STORAGE] Using existing application: ${applicationId}`);
     }
 
     // Create deleted post entry with complete job and company data
@@ -1238,7 +1252,13 @@ export class MemStorage implements IStorage {
 
     this.deletedPosts.set(deletedPost.id, deletedPost);
 
-    console.log(`Job ${jobId} soft deleted for user ${userId} with deleted post ID: ${deletedPost.id}`);
+    console.log(`[STORAGE] Job ${jobId} soft deleted for user ${userId} with deleted post ID: ${deletedPost.id}`);
+    console.log(`[STORAGE] Deleted post created:`, {
+      id: deletedPost.id,
+      userId: deletedPost.userId,
+      jobId: deletedPost.jobId,
+      title: deletedPost.title
+    });
 
     return deletedPost;
   }
