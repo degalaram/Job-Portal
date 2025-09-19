@@ -65,7 +65,15 @@ export default function DeletedPosts() {
       console.log(`Fetching deleted posts for user: ${user.id}`);
       
       try {
-        const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}?_t=${Date.now()}`);
+        const response = await fetch(`/api/deleted-posts/user/${user.id}?_t=${Date.now()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'user-id': user.id
+          },
+        });
+        
+        console.log('API Response status:', response.status);
         
         if (!response.ok) {
           if (response.status === 404) {
@@ -73,15 +81,15 @@ export default function DeletedPosts() {
             return [];
           }
           
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          console.error('API Error:', errorData);
+          const errorText = await response.text();
+          console.error('API Error response:', errorText);
           
           if (response.status === 500) {
             console.warn('Server error, returning empty array to prevent UI breaking');
             return [];
           }
           
-          throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorData.message || errorData.error}`);
+          throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorText}`);
         }
         
         const data = await response.json();
@@ -97,14 +105,13 @@ export default function DeletedPosts() {
         return data;
       } catch (error) {
         console.error('Error fetching deleted posts:', error);
-        // Return empty array instead of throwing to prevent breaking the UI
-        return [];
+        throw error; // Let React Query handle the error properly
       }
     },
     enabled: !!user?.id && !userLoading,
-    retry: 2, // Reduce retries to avoid too many failed requests
-    retryDelay: 2000,
-    refetchInterval: 15000, // Refresh every 15 seconds
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    refetchInterval: 10000, // Refresh every 10 seconds
     refetchOnWindowFocus: true,
     refetchOnMount: true,
     staleTime: 0, // Always fetch fresh data
