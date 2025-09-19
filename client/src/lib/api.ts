@@ -1,20 +1,19 @@
 const getApiUrl = () => {
-  // PRIORITY 1: Use environment variable if available (Cloudflare Pages with VITE_API_BASE_URL)
+  // PRIORITY 1: Use environment variable if available
   if (import.meta.env.VITE_API_BASE_URL) {
     console.log('Using API URL from environment:', import.meta.env.VITE_API_BASE_URL);
     return import.meta.env.VITE_API_BASE_URL;
   }
 
-  // PRIORITY 2: For all deployment environments (including Replit deployments)
-  if (window.location.hostname.includes('replit.dev') || 
+  // PRIORITY 2: For production/deployment environments - always use same origin
+  if (window.location.protocol === 'https:' || 
+      window.location.hostname.includes('replit.dev') || 
       window.location.hostname.includes('repl.co') || 
       window.location.hostname.includes('replit.app') ||
       window.location.hostname.includes('pike.replit.dev') ||
       window.location.hostname.includes('projectnow.pages.dev') ||
       window.location.hostname.includes('replit-deployed') ||
-      window.location.hostname.includes('.app') ||
-      window.location.port === '' ||
-      window.location.protocol === 'https:') {
+      window.location.port === '') {
     const apiUrl = window.location.origin;
     console.log('Using deployment API URL:', apiUrl);
     return apiUrl;
@@ -45,7 +44,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
   const options: RequestInit = {
     method,
-    credentials: "include", // CRITICAL: Required for session management
+    credentials: "include",
     headers,
     mode: "cors" as RequestMode,
     cache: "no-cache" as RequestCache,
@@ -55,13 +54,14 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
     options.body = JSON.stringify(data);
   }
 
-  console.log(`API Request: ${method} ${url}`);
-  console.log('Request data:', data);
-  console.log('Request headers:', headers);
+  console.log(`[API] ${method} ${url}`);
+  console.log('[API] Request data:', data);
+  console.log('[API] Headers:', headers);
+  console.log('[API] Full URL being called:', url);
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // Increased timeout for deployment
     
     const response = await fetch(url, {
       ...options,
@@ -70,11 +70,11 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
     
     clearTimeout(timeoutId);
     
-    console.log(`API Response: ${method} ${url} - Status: ${response.status}`);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+    console.log(`[API] Response: ${method} ${url} - Status: ${response.status}`);
+    console.log('[API] Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
-      console.error(`API Error: ${method} ${url} - ${response.status}`);
+      console.error(`[API] Error: ${method} ${url} - ${response.status}`);
       let errorMessage = `HTTP error! status: ${response.status}`;
       
       try {
@@ -83,17 +83,16 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
         if (contentType && contentType.includes('application/json')) {
           const errorData = await response.json();
           errorMessage = errorData.message || errorData.error || errorMessage;
-          console.error('Error data:', errorData);
+          console.error('[API] Error data:', errorData);
         } else {
           const errorText = await response.text();
-          console.error('Error text:', errorText);
+          console.error('[API] Error text:', errorText);
           if (errorText && errorText.length > 0) {
             errorMessage = errorText;
           }
         }
       } catch (parseError) {
-        console.error('Could not parse error response:', parseError);
-        // Use the default error message with status
+        console.error('[API] Could not parse error response:', parseError);
         errorMessage = `Request failed with status: ${response.status}`;
       }
       
@@ -102,7 +101,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
     return response;
   } catch (error) {
-    console.error(`Network error for ${method} ${url}:`, error);
+    console.error(`[API] Network error for ${method} ${url}:`, error);
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         throw new Error('Request timeout - please try again');
