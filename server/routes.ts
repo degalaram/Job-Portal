@@ -490,6 +490,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[DELETED POSTS API] Found ${Array.isArray(deletedPosts) ? deletedPosts.length : 'non-array'} deleted posts`);
 
+      // Enhanced debugging - always log what we're returning
+      console.log(`[DELETED POSTS API] DETAILED DEBUG - User: ${userId}`);
+      console.log(`[DELETED POSTS API] DETAILED DEBUG - Posts array:`, deletedPosts);
+      console.log(`[DELETED POSTS API] DETAILED DEBUG - Array length:`, deletedPosts?.length);
+      console.log(`[DELETED POSTS API] DETAILED DEBUG - Is array:`, Array.isArray(deletedPosts));
+
       // Ensure we always return an array
       if (!Array.isArray(deletedPosts)) {
         console.log('[DELETED POSTS API] Storage returned non-array, converting to empty array');
@@ -506,9 +512,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasJobData: !!deletedPosts[0].job,
           companyName: deletedPosts[0].company?.name
         });
+        
+        // Log ALL posts for debugging
+        deletedPosts.forEach((post, index) => {
+          console.log(`[DELETED POSTS API] Post ${index + 1}:`, {
+            id: post.id,
+            title: post.title,
+            company: post.company?.name,
+            deletedAt: post.deletedAt
+          });
+        });
+      } else {
+        console.log('[DELETED POSTS API] No deleted posts to return for user', userId);
       }
 
-      res.status(200).json(deletedPosts);
+      // Force return the data with explicit status
+      const responseData = deletedPosts;
+      console.log(`[DELETED POSTS API] FINAL RESPONSE:`, responseData);
+      res.status(200).json(responseData);
     } catch (error) {
       console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
       
