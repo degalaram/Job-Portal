@@ -427,11 +427,20 @@ export default function Jobs() {
 
       // Set flag in localStorage to trigger refresh in deleted posts page
       localStorage.setItem('job_deleted', 'true');
+      
+      // Trigger storage event manually for same-tab detection
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'job_deleted',
+        newValue: 'true',
+      }));
 
       // Force refresh all related queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] }).catch(console.error);
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] }).catch(console.error);
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] }).catch(console.error);
+      
+      // Force immediate refetch of deleted posts
+      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] }).catch(console.error);
 
       // Also refetch immediately
       queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
