@@ -28,7 +28,7 @@ const API_URL = (() => {
   }
   return window.location.origin;
 })();
-import { Navbar } from '@/components/job-portal/navbar';
+import {Navbar} from '@/components/job-portal/navbar';
 import {
   Search,
   MapPin,
@@ -359,104 +359,65 @@ export default function Jobs() {
   });
 
   const deleteJobMutation = useMutation({
-    mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
-      if (!userId) {
-        throw new Error('User not logged in');
+    mutationFn: async (jobId: string) => {
+      if (!user?.id) {
+        throw new Error('User not authenticated');
       }
 
-      console.log(`[DELETE] Starting soft delete operation for job ${jobId} and user ${userId}`);
+      console.log(`[DELETE JOB] Starting deletion for job ${jobId} by user ${user.id}`);
 
-      try {
-        // Get the most current user data
-        const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-        const actualUserId = currentUser.id || userId;
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, {
+        userId: user.id
+      }, {
+        'user-id': user.id,
+        'Content-Type': 'application/json'
+      });
 
-        if (!actualUserId) {
-          throw new Error('User ID not found in localStorage');
-        }
-
-        console.log(`[DELETE] Using user ID: ${actualUserId}`);
-        console.log(`[DELETE] Making soft delete request to: /api/jobs/${jobId}/soft-delete`);
-
-        // Make the soft delete request (similar to companies)
-        const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`,
-          {
-            userId: actualUserId
-          },
-          {
-            'user-id': actualUserId,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        );
-
-        console.log(`[DELETE] Response status: ${response.status}`);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Failed to delete job: ${errorText}`);
-        }
-
-        const result = await response.json();
-        console.log('[DELETE] Response data:', result);
-
-        return result;
-      } catch (error) {
-        console.error('[DELETE] Delete operation failed:', error);
-
-        // Provide more specific error messages
-        if (error instanceof Error) {
-          if (error.message.includes('404')) {
-            throw new Error('Job not found or already deleted');
-          } else if (error.message.includes('403')) {
-            throw new Error('Not authorized to delete this job');
-          } else if (error.message.includes('500')) {
-            throw new Error('Server error occurred. Please try again.');
-          } else if (error.message.includes('timeout')) {
-            throw new Error('Request timed out. Please check your connection and try again.');
-          } else if (error.message.includes('HTML error page')) {
-            throw new Error('Server configuration error. Please contact support.');
-          }
-        }
-
-        throw error;
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`[DELETE JOB] API error: ${error}`);
+        throw new Error(`Failed to delete job: ${error}`);
       }
+
+      const result = await response.json();
+      console.log(`[DELETE JOB] API success:`, result);
+      return result;
     },
-    onSuccess: (data) => {
-      console.log('[DELETE] Soft delete successful:', data);
+    onSuccess: (result) => {
+      console.log('[DELETE JOB] Job deleted successfully:', result);
 
-      // Set flag in localStorage to trigger refresh in deleted posts page
+      // Invalidate jobs query to refresh the list immediately
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+
+      // Set multiple flags to ensure deleted posts refresh
       localStorage.setItem('job_deleted', 'true');
-      
-      // Trigger storage event manually for same-tab detection
+      localStorage.setItem('job_deleted_timestamp', Date.now().toString());
+      localStorage.setItem('deleted_job_id', result.jobId || '');
+      localStorage.setItem('deleted_user_id', user?.id || '');
+
+      // Trigger multiple refresh events
+      window.dispatchEvent(new CustomEvent('refreshDeletedPosts', {
+        detail: { jobId: result.jobId, userId: user?.id }
+      }));
       window.dispatchEvent(new StorageEvent('storage', {
         key: 'job_deleted',
         newValue: 'true',
+        oldValue: null
       }));
 
-      // Force refresh all related queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'] }).catch(console.error);
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] }).catch(console.error);
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] }).catch(console.error);
-      
-      // Force immediate refetch of deleted posts
-      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] }).catch(console.error);
-
-      // Also refetch immediately
-      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
+      console.log('[DELETE JOB] Set localStorage flags and dispatched events for deleted posts refresh');
 
       toast({
-        title: 'Job moved to trash',
-        description: 'The job has been moved to deleted posts. You can restore it within 5 days.',
+        title: 'Job removed from your list',
+        description: `"${result.deletedPost?.title || 'Job'}" has been moved to your deleted posts. You can restore it within 5 days.`,
       });
     },
     onError: (error: any) => {
-      console.error('[DELETE] Delete failed:', error);
+      console.error('[DELETE JOB] Error:', error);
       toast({
-        title: 'Failed to move job to trash',
-        description: error?.message || 'Failed to delete job. Please try again.',
+        title: 'Failed to remove job',
+        description: error?.message || 'Something went wrong while removing the job.',
         variant: 'destructive',
       });
     },
@@ -566,7 +527,7 @@ export default function Jobs() {
       });
 
       // Perform deletion
-      deleteJobMutation.mutate({ jobId, userId: user.id });
+      deleteJobMutation.mutate(jobId); // Pass only jobId to the mutation
     } else {
       console.log(`[DELETE HANDLER] User cancelled deletion for job ${jobId}`);
     }
