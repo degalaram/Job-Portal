@@ -286,9 +286,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[JOB DELETE] Job ${jobId} soft deleted for user ${userId}`);
       console.log(`[JOB DELETE] Successfully created deleted post with ID: ${deletedPost.id}`);
 
-      // Set proper headers for JSON response
-      res.setHeader('Content-Type', 'application/json');
-      res.status(200).json({ 
+      // Ensure we return a proper JSON response
+      return res.status(200).json({ 
         message: 'Job deleted successfully',
         deletedPost: deletedPost,
         success: true,
@@ -299,9 +298,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       
-      // Set proper headers for error response
-      res.setHeader('Content-Type', 'application/json');
-      res.status(500).json({ 
+      // Ensure we return a proper JSON error response
+      return res.status(500).json({ 
         error: 'Failed to delete job', 
         message: errorMessage,
         success: false,
