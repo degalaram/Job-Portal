@@ -365,17 +365,18 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
-      console.log(`[DELETE] Attempting to delete job ${jobId} for user ${userId}`);
-      console.log(`[DELETE] API URL being used: ${API_URL || window.location.origin}`);
+      console.log(`[DELETE] Starting delete operation for job ${jobId} and user ${userId}`);
+      console.log(`[DELETE] Current API URL: ${API_URL || window.location.origin}`);
       
       try {
-        // Ensure we're using the current user data
+        // Get the most current user data
         const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
         const actualUserId = currentUser.id || userId;
         
         console.log(`[DELETE] Using user ID: ${actualUserId}`);
+        console.log(`[DELETE] Making request to: /api/jobs/${jobId}/delete`);
         
-        // Use the correct delete endpoint with proper headers and body
+        // Make the delete request
         const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, 
           { userId: actualUserId }, 
           { 
@@ -385,41 +386,41 @@ export default function Jobs() {
           }
         );
         
-        console.log(`[DELETE] Response received:`, response.status, response.statusText);
-        
-        if (!response.ok) {
-          let errorMessage = `Failed to delete job: ${response.status}`;
-          try {
-            const errorData = await response.clone().json();
-            errorMessage = errorData.error || errorData.message || errorMessage;
-            console.error('[DELETE] Error data:', errorData);
-          } catch {
-            try {
-              const errorText = await response.clone().text();
-              errorMessage = errorText || errorMessage;
-              console.error('[DELETE] Error text:', errorText);
-            } catch (textError) {
-              console.error('[DELETE] Could not read error response:', textError);
-            }
-          }
-          throw new Error(errorMessage);
-        }
+        console.log(`[DELETE] Response status: ${response.status}`);
         
         const result = await response.json();
-        console.log('[DELETE] Success response:', result);
+        console.log('[DELETE] Response data:', result);
         return result;
       } catch (error) {
-        console.error('[DELETE] Mutation error:', error);
+        console.error('[DELETE] Delete operation failed:', error);
+        
+        // Provide more specific error messages
+        if (error instanceof Error) {
+          if (error.message.includes('404')) {
+            throw new Error('Job not found or already deleted');
+          } else if (error.message.includes('403')) {
+            throw new Error('Not authorized to delete this job');
+          } else if (error.message.includes('500')) {
+            throw new Error('Server error occurred. Please try again.');
+          } else if (error.message.includes('timeout')) {
+            throw new Error('Request timed out. Please check your connection and try again.');
+          }
+        }
+        
         throw error;
       }
     },
     onSuccess: (data) => {
-      console.log('[DELETE] Mutation succeeded:', data);
-      // Update the UI by invalidating queries
+      console.log('[DELETE] Delete successful:', data);
+      
+      // Force refresh all related queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      
+      // Also refetch immediately
+      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
 
       toast({
         title: 'Job deleted successfully',
@@ -427,7 +428,7 @@ export default function Jobs() {
       });
     },
     onError: (error: any) => {
-      console.error('[DELETE] Mutation failed:', error);
+      console.error('[DELETE] Delete failed:', error);
       toast({
         title: 'Delete failed',
         description: error?.message || 'Failed to delete job. Please try again.',
@@ -503,26 +504,46 @@ export default function Jobs() {
     e.stopPropagation();
     e.preventDefault();
     
+    console.log(`[DELETE HANDLER] Delete button clicked for job: ${jobId}`);
+    
     if (!user || !user.id) {
       console.log('[DELETE HANDLER] No user found, redirecting to login');
+      toast({
+        title: 'Authentication required',
+        description: 'Please log in to delete jobs.',
+        variant: 'destructive',
+      });
       navigate('/login');
       return;
     }
     
-    console.log(`[DELETE HANDLER] Deleting job ${jobId} for user ${user.id}`);
+    // Validate job ID
+    if (!jobId || jobId.trim() === '') {
+      console.error('[DELETE HANDLER] Invalid job ID:', jobId);
+      toast({
+        title: 'Error',
+        description: 'Invalid job ID. Please refresh the page and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    console.log(`[DELETE HANDLER] Confirmed: Deleting job ${jobId} for user ${user.id}`);
+    console.log(`[DELETE HANDLER] User data:`, { id: user.id, email: user.email });
     
     if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
-      try {
-        // Perform deletion and let the success handler manage UI updates
-        deleteJobMutation.mutate({ jobId, userId: user.id });
-      } catch (error) {
-        console.error('[DELETE HANDLER] Error during mutation:', error);
-        toast({
-          title: 'Delete failed',
-          description: 'Something went wrong. Please try again.',
-          variant: 'destructive',
-        });
-      }
+      console.log(`[DELETE HANDLER] User confirmed deletion for job ${jobId}`);
+      
+      // Show loading state
+      toast({
+        title: 'Deleting job...',
+        description: 'Please wait while we process your request.',
+      });
+      
+      // Perform deletion
+      deleteJobMutation.mutate({ jobId, userId: user.id });
+    } else {
+      console.log(`[DELETE HANDLER] User cancelled deletion for job ${jobId}`);
     }
   };
 
