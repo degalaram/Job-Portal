@@ -53,6 +53,32 @@ export default function DeletedPosts() {
     }
   }, [navigate]);
 
+  // Listen for storage changes to refresh when jobs are deleted
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'job_deleted' && user?.id) {
+        console.log('Job deletion detected, refreshing deleted posts');
+        refetch();
+        // Clear the flag
+        localStorage.removeItem('job_deleted');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check periodically for deleted posts
+    const interval = setInterval(() => {
+      if (user?.id && !isLoading) {
+        refetch();
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [user?.id, refetch, isLoading]);
+
   const { data: deletedPosts = [], isLoading, error, refetch } = useQuery({
     queryKey: ['deleted-posts', user?.id],
     queryFn: async () => {
@@ -69,6 +95,13 @@ export default function DeletedPosts() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`API Error: ${response.status} - ${errorText}`);
+          
+          // Handle specific error cases
+          if (response.status === 404) {
+            console.log('No deleted posts found for user');
+            return [];
+          }
+          
           throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorText}`);
         }
         
@@ -85,18 +118,20 @@ export default function DeletedPosts() {
         return data;
       } catch (error) {
         console.error('Error in queryFn:', error);
-        throw error;
+        // Return empty array instead of throwing to prevent unhandled rejections
+        return [];
       }
     },
     enabled: !!user?.id && !userLoading,
     retry: (failureCount, error) => {
       console.log(`Query retry attempt ${failureCount}:`, error);
-      return failureCount < 3;
+      return failureCount < 2; // Reduce retry attempts
     },
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    staleTime: 30000,
+    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 5000),
+    staleTime: 5000, // Reduce stale time to get fresh data
     refetchOnMount: true,
     refetchOnWindowFocus: false,
+    refetchInterval: 10000, // Auto-refresh every 10 seconds
   });
 
   const restorePostMutation = useMutation({
