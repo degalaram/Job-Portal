@@ -59,7 +59,8 @@ export default function DeletedPosts() {
     queryKey: ['deleted-posts', user?.id],
     queryFn: async () => {
       if (!user?.id) {
-        throw new Error('User ID is required');
+        console.log('No user ID available');
+        return [];
       }
       
       console.log(`Fetching deleted posts for user: ${user.id}`);
@@ -81,7 +82,7 @@ export default function DeletedPosts() {
             return [];
           }
           
-          const errorText = await response.text();
+          const errorText = await response.text().catch(() => 'Unknown error');
           console.error('API Error response:', errorText);
           
           if (response.status === 500) {
@@ -89,10 +90,16 @@ export default function DeletedPosts() {
             return [];
           }
           
-          throw new Error(`Failed to fetch deleted posts: ${response.status} - ${errorText}`);
+          // Don't throw for client errors, just return empty array
+          console.warn(`API error ${response.status}, returning empty array`);
+          return [];
         }
         
-        const data = await response.json();
+        const data = await response.json().catch((e) => {
+          console.error('Failed to parse JSON response:', e);
+          return [];
+        });
+        
         console.log('Deleted posts received:', data);
         
         // Ensure we return an array
@@ -105,16 +112,21 @@ export default function DeletedPosts() {
         return data;
       } catch (error) {
         console.error('Error fetching deleted posts:', error);
-        throw error; // Let React Query handle the error properly
+        // Return empty array instead of throwing to prevent unhandled rejections
+        return [];
       }
     },
     enabled: !!user?.id && !userLoading,
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    refetchInterval: 10000, // Refresh every 10 seconds
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
+    refetchInterval: 5000, // Refresh every 5 seconds
     refetchOnWindowFocus: true,
     refetchOnMount: true,
     staleTime: 0, // Always fetch fresh data
+    onError: (error) => {
+      console.error('Query error:', error);
+      // Handle error silently to prevent unhandled rejections
+    }
   });
 
   // Listen for storage changes to refresh when jobs are deleted
@@ -122,12 +134,26 @@ export default function DeletedPosts() {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'job_deleted' && user?.id) {
         console.log('Job deletion detected, refreshing deleted posts');
-        refetch();
+        refetch().catch((error) => {
+          console.error('Error refetching after job deletion:', error);
+        });
         // Clear the flag
         localStorage.removeItem('job_deleted');
       }
     };
 
+    // Also check for the flag on mount in case we missed the storage event
+    const checkDeletedFlag = () => {
+      if (localStorage.getItem('job_deleted') && user?.id) {
+        console.log('Found job_deleted flag on mount, refreshing');
+        refetch().catch((error) => {
+          console.error('Error refetching on mount:', error);
+        });
+        localStorage.removeItem('job_deleted');
+      }
+    };
+
+    checkDeletedFlag();
     window.addEventListener('storage', handleStorageChange);
     
     return () => {
@@ -137,12 +163,17 @@ export default function DeletedPosts() {
 
   const restorePostMutation = useMutation({
     mutationFn: async (postId: string) => {
-      const response = await apiRequest('POST', `/api/deleted-posts/${postId}/restore`);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to restore post: ${errorText}`);
+      try {
+        const response = await apiRequest('POST', `/api/deleted-posts/${postId}/restore`);
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          throw new Error(`Failed to restore post: ${errorText}`);
+        }
+        return await response.json().catch(() => ({ message: 'Post restored successfully' }));
+      } catch (error) {
+        console.error('Restore mutation error:', error);
+        throw error;
       }
-      return response.json();
     },
     onSuccess: (result) => {
       console.log('Restore success result:', result);
@@ -156,25 +187,25 @@ export default function DeletedPosts() {
       queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
       
       // Force immediate refetch of critical data
-      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] }).catch(console.error);
+      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] }).catch(console.error);
       
       // Small delay then refetch again to ensure data consistency
       setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] }).catch(console.error);
+        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] }).catch(console.error);
       }, 500);
       
       toast({
         title: 'Post restored successfully',
-        description: `The job post has been restored and you can now apply to it again. ${result.applicationsRemoved || 0} application(s) were removed.`,
+        description: `The job post has been restored and you can now apply to it again. ${result?.applicationsRemoved || 0} application(s) were removed.`,
       });
     },
     onError: (error: any) => {
       console.error('Restore post error:', error);
       toast({
         title: 'Restore failed',
-        description: error.message || 'Failed to restore post',
+        description: error?.message || 'Failed to restore post',
         variant: 'destructive',
       });
     },
@@ -182,15 +213,20 @@ export default function DeletedPosts() {
 
   const permanentDeleteMutation = useMutation({
     mutationFn: async (postId: string) => {
-      const response = await apiRequest('DELETE', `/api/deleted-posts/${postId}/permanent`);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to permanently delete post: ${errorText}`);
+      try {
+        const response = await apiRequest('DELETE', `/api/deleted-posts/${postId}/permanent`);
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          throw new Error(`Failed to permanently delete post: ${errorText}`);
+        }
+        return await response.json().catch(() => ({ message: 'Post permanently deleted' }));
+      } catch (error) {
+        console.error('Permanent delete mutation error:', error);
+        throw error;
       }
-      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] }).catch(console.error);
       toast({
         title: 'Post permanently deleted',
         description: 'The post has been permanently removed and cannot be restored.',
@@ -200,7 +236,7 @@ export default function DeletedPosts() {
       console.error('Permanent delete error:', error);
       toast({
         title: 'Delete failed',
-        description: error.message || 'Failed to permanently delete post',
+        description: error?.message || 'Failed to permanently delete post',
         variant: 'destructive',
       });
     },
