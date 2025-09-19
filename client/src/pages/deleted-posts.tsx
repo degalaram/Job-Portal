@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { Navbar } from '@/components/job-portal/navbar';
+import { SmartLogo } from '@/components/ui/smart-logo';
 import { 
   Briefcase, 
   MapPin, 
@@ -125,13 +126,13 @@ export default function DeletedPosts() {
     enabled: !!user?.id && !userLoading,
     retry: (failureCount, error) => {
       console.log(`Query retry attempt ${failureCount}:`, error);
-      return failureCount < 2; // Reduce retry attempts
+      return failureCount < 3; // Allow more retries
     },
-    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 5000),
-    staleTime: 5000, // Reduce stale time to get fresh data
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    staleTime: 0, // Always fetch fresh data
     refetchOnMount: true,
-    refetchOnWindowFocus: false,
-    refetchInterval: 10000, // Auto-refresh every 10 seconds
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000, // Check every 5 seconds for updates
   });
 
   const restorePostMutation = useMutation({
@@ -309,169 +310,206 @@ export default function DeletedPosts() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {(() => {
             console.log('Rendering deleted posts. Length:', deletedPosts?.length || 0);
             console.log('Deleted posts data:', deletedPosts);
             return null;
           })()}
           {deletedPosts.length === 0 ? (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <div className="text-gray-400 mb-4">
-                  <Trash2 className="w-16 h-16 mx-auto" />
-                </div>
-                <h3 className="text-xl font-medium text-gray-900 mb-2">No Deleted Posts</h3>
-                <p className="text-gray-600 mb-6">
-                  You haven't deleted any job applications. Deleted posts will appear here and can be restored within 5 days.
-                </p>
-                <Button onClick={() => navigate('/jobs')} data-testid="browse-jobs-button">
-                  <Briefcase className="w-4 h-4 mr-2" />
-                  Browse Jobs
-                </Button>
-              </CardContent>
-            </Card>
+            <div className="w-full max-w-4xl mx-auto">
+              <Card className="w-full">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="text-gray-400 mb-4">
+                    <Trash2 className="w-12 sm:w-16 h-12 sm:h-16 mx-auto" />
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-medium text-gray-900 mb-2">No Deleted Posts</h3>
+                  <p className="text-gray-600 mb-6 text-sm sm:text-base max-w-md mx-auto">
+                    You haven't deleted any job applications. Deleted posts will appear here and can be restored within 5 days.
+                  </p>
+                  <Button onClick={() => navigate('/jobs')} data-testid="browse-jobs-button">
+                    <Briefcase className="w-4 h-4 mr-2" />
+                    Browse Jobs
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           ) : (
-            deletedPosts.map((deletedPost: any) => {
-              console.log('Processing deleted post:', deletedPost);
-              
-              // Create job object from deleted post data structure
-              const job = deletedPost?.job || {
-                id: deletedPost.originalId,
-                title: deletedPost.title,
-                description: deletedPost.description,
-                location: deletedPost.location,
-                salary: deletedPost.salary,
-                skills: deletedPost.skills || '',
-                closingDate: deletedPost.scheduledDeletion,
-                company: deletedPost.company || {
-                  name: 'Unknown Company',
-                  location: deletedPost.location || 'Unknown Location'
-                }
-              };
-              
-              const deletedDate = new Date(deletedPost.deletedAt);
-              const daysLeft = getDaysLeft(deletedPost.deletedAt);
-              const isExpired = job.closingDate ? new Date(job.closingDate) < new Date() : false;
+            <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6">
+              {deletedPosts.map((deletedPost: any) => {
+                console.log('Processing deleted post:', deletedPost);
+                
+                // Create job object from deleted post data structure
+                const job = deletedPost?.job || {
+                  id: deletedPost.originalId || deletedPost.jobId,
+                  title: deletedPost.title,
+                  description: deletedPost.description,
+                  location: deletedPost.location,
+                  salary: deletedPost.salary,
+                  skills: deletedPost.skills || '',
+                  closingDate: deletedPost.scheduledDeletion,
+                  company: deletedPost.company || {
+                    name: 'Unknown Company',
+                    location: deletedPost.location || 'Unknown Location'
+                  }
+                };
+                
+                const deletedDate = new Date(deletedPost.deletedAt);
+                const daysLeft = getDaysLeft(deletedPost.deletedAt);
+                const isExpired = job.closingDate ? new Date(job.closingDate) < new Date() : false;
 
-              return (
-                <Card 
-                  key={deletedPost.id} 
-                  className="w-full border-red-200 bg-red-50/30"
-                  data-testid={`deleted-post-card-${deletedPost.id}`}
-                >
-                  <CardContent className="p-4 sm:p-5 md:p-6">
-                    {/* Header with Title and Deleted Badge */}
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-4 gap-2 sm:gap-0">
-                      <div className="flex-1">
-                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">
-                          {job.title}
-                        </h3>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-600 mb-3">
-                          <div className="flex items-center gap-1">
-                            <Building className="w-4 h-4" />
-                            <span>{job.company.name}</span>
+                return (
+                  <Card 
+                    key={deletedPost.id} 
+                    className="w-full border-red-200 bg-red-50/30 mx-auto"
+                    data-testid={`deleted-post-card-${deletedPost.id}`}
+                  >
+                    <CardContent className="p-4 sm:p-5 md:p-6">
+                      {/* Header with Company Logo and Job Info */}
+                      <div className="flex items-start gap-3 sm:gap-4 mb-4">
+                        {/* Company Logo */}
+                        <div className="flex-shrink-0">
+                          <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white border-2 border-gray-200 rounded-lg flex items-center justify-center shadow-sm">
+                            {job.company.logo ? (
+                              <img 
+                                src={job.company.logo} 
+                                alt={job.company.name}
+                                className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    const initial = job.company.name.charAt(0).toUpperCase();
+                                    parent.innerHTML = `<div class="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm sm:text-lg font-bold text-blue-600">${initial}</span></div>`;
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <span className="text-sm sm:text-lg font-bold text-blue-600">
+                                  {job.company.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-4 h-4" />
-                            <span>{job.location}</span>
+                        </div>
+
+                        {/* Job Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-2 gap-2">
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 line-clamp-2">
+                              {job.title}
+                            </h3>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <Badge variant="destructive" className="px-2 sm:px-3 py-1 text-xs">
+                                Deleted
+                              </Badge>
+                              {daysLeft > 0 && (
+                                <Badge variant="outline" className="px-2 sm:px-3 py-1 text-xs border-orange-300 text-orange-700">
+                                  <AlertCircle className="w-3 h-3 mr-1" />
+                                  {daysLeft} days left
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-4 h-4" />
-                            <span>Deleted: {deletedDate.toLocaleDateString('en-GB')}</span>
+                          
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-600 mb-3">
+                            <div className="flex items-center gap-1">
+                              <Building className="w-4 h-4 flex-shrink-0" />
+                              <span className="truncate">{job.company.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4 flex-shrink-0" />
+                              <span className="truncate">{job.location}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4 flex-shrink-0" />
+                              <span>Deleted: {deletedDate.toLocaleDateString('en-GB')}</span>
+                            </div>
+                          </div>
+
+                          {/* Salary and Closing Date */}
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 mb-3 text-xs sm:text-sm">
+                            <span className="font-semibold text-green-600">{job.salary}</span>
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <Clock className="w-4 h-4" />
+                              <span>Closes: {new Date(job.closingDate).toLocaleDateString('en-GB')}</span>
+                            </div>
+                            {isExpired && (
+                              <Badge variant="destructive" className="text-xs px-2 py-1">Expired</Badge>
+                            )}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="destructive" className="px-2 sm:px-3 py-1 text-xs sm:text-sm">
-                          Deleted
-                        </Badge>
-                        {daysLeft > 0 && (
-                          <Badge variant="outline" className="px-2 sm:px-3 py-1 text-xs sm:text-sm border-orange-300 text-orange-700">
-                            <AlertCircle className="w-3 h-3 mr-1" />
-                            {daysLeft} days left
+
+                      {/* Job Description */}
+                      <div className="mb-4">
+                        <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                          {job.description.length > 150 
+                            ? `${job.description.substring(0, 150)}...` 
+                            : job.description
+                          }
+                        </p>
+                      </div>
+
+                      {/* Skills */}
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4">
+                        {job.skills.split(',').slice(0, 6).map((skill: string, index: number) => (
+                          <Badge key={index} variant="outline" className="text-xs px-2 py-1 bg-gray-50 text-gray-600 border-gray-200">
+                            {skill.trim()}
+                          </Badge>
+                        ))}
+                        {job.skills.split(',').length > 6 && (
+                          <Badge variant="outline" className="text-xs px-2 py-1 bg-gray-50 text-gray-600 border-gray-200">
+                            +{job.skills.split(',').length - 6}
                           </Badge>
                         )}
                       </div>
-                    </div>
 
-                    {/* Salary and Closing Date */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 mb-4 text-xs sm:text-sm">
-                      <span className="font-semibold text-green-600">{job.salary}</span>
-                      <div className="flex items-center gap-1 text-gray-600">
-                        <Clock className="w-4 h-4" />
-                        <span>Closes: {new Date(job.closingDate).toLocaleDateString('en-GB')}</span>
-                      </div>
-                      {isExpired && (
-                        <Badge variant="destructive" className="text-xs px-2 py-1">Expired</Badge>
-                      )}
-                    </div>
+                      {/* Bottom Section - Actions */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 sm:pt-4 border-t border-gray-200 gap-3 sm:gap-0">
+                        <div className="text-xs sm:text-sm text-gray-600">
+                          {daysLeft > 0 ? (
+                            <span className="text-orange-600 font-medium">
+                              Will be permanently deleted in {daysLeft} day{daysLeft !== 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-red-600 font-medium">Expired - Will be deleted soon</span>
+                          )}
+                        </div>
 
-                    {/* Job Description */}
-                    <p className="text-gray-700 text-xs sm:text-sm mb-4 leading-relaxed">
-                      {job.description.length > 150 
-                        ? `${job.description.substring(0, 150)}...` 
-                        : job.description
-                      }
-                    </p>
-
-                    {/* Skills */}
-                    <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4 sm:mb-6">
-                      {job.skills.split(',').slice(0, 6).map((skill: string, index: number) => (
-                        <Badge key={index} variant="outline" className="text-xs px-2 py-1 bg-gray-50 text-gray-600 border-gray-200">
-                          {skill.trim()}
-                        </Badge>
-                      ))}
-                      {job.skills.split(',').length > 6 && (
-                        <Badge variant="outline" className="text-xs px-2 py-1 bg-gray-50 text-gray-600 border-gray-200">
-                          +{job.skills.split(',').length - 6}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {/* Bottom Section - Actions */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 sm:pt-4 border-t border-gray-200 gap-3 sm:gap-0">
-                      <div className="text-xs sm:text-sm text-gray-600">
-                        {daysLeft > 0 ? (
-                          <span className="text-orange-600 font-medium">
-                            Will be permanently deleted in {daysLeft} day{daysLeft !== 1 ? 's' : ''}
-                          </span>
-                        ) : (
-                          <span className="text-red-600 font-medium">Expired - Will be deleted soon</span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row gap-2 items-center sm:items-end">
-                        {daysLeft > 0 && (
+                        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                          {daysLeft > 0 && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleRestorePost(deletedPost.id)}
+                              disabled={restorePostMutation.isPending}
+                              data-testid={`restore-post-${deletedPost.id}`}
+                              className="text-xs h-8 w-full sm:w-auto"
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" />
+                              Restore
+                            </Button>
+                          )}
                           <Button 
-                            variant="outline" 
+                            variant="destructive" 
                             size="sm"
-                            onClick={() => handleRestorePost(deletedPost.id)}
-                            disabled={restorePostMutation.isPending}
-                            data-testid={`restore-post-${deletedPost.id}`}
+                            onClick={() => handlePermanentDelete(deletedPost.id)}
+                            disabled={permanentDeleteMutation.isPending}
+                            data-testid={`permanent-delete-${deletedPost.id}`}
                             className="text-xs h-8 w-full sm:w-auto"
                           >
-                            <RotateCcw className="w-3 h-3 mr-1" />
-                            Restore
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete Forever
                           </Button>
-                        )}
-                        <Button 
-                          variant="destructive" 
-                          size="sm"
-                          onClick={() => handlePermanentDelete(deletedPost.id)}
-                          disabled={permanentDeleteMutation.isPending}
-                          data-testid={`permanent-delete-${deletedPost.id}`}
-                          className="text-xs h-8 w-full sm:w-auto"
-                        >
-                          <Trash2 className="w-3 h-3 mr-1" />
-                          Delete Forever
-                        </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
