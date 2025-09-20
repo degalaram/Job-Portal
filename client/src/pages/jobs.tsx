@@ -345,25 +345,42 @@ export default function Jobs() {
         throw new Error('User not logged in');
       }
 
+      console.log(`Attempting to delete job ${jobId} for user ${userId}`);
+
       // Use the correct delete endpoint and send user-id in headers as expected by backend
       const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
 
       if (!response.ok) {
-        const errorText = await response.text();
         let errorMessage = 'Failed to delete job';
-
+        
         try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          console.error('Server returned non-JSON response:', errorText);
-          errorMessage = 'Server error occurred';
+          const responseText = await response.text();
+          console.error('Delete job response error:', responseText);
+          
+          if (responseText) {
+            try {
+              const errorData = JSON.parse(responseText);
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch {
+              errorMessage = responseText || errorMessage;
+            }
+          }
+        } catch (readError) {
+          console.error('Error reading response:', readError);
+          errorMessage = `Server error: ${response.status}`;
         }
 
         throw new Error(errorMessage);
       }
 
-      return response.json();
+      try {
+        const result = await response.json();
+        console.log('Delete job success:', result);
+        return result;
+      } catch (jsonError) {
+        console.log('Response was successful but not JSON, treating as success');
+        return { message: 'Job deleted successfully' };
+      }
     },
     onSuccess: () => {
       // Update the UI by invalidating queries (tab already switched)
