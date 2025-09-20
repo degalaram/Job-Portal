@@ -62,15 +62,24 @@ export async function apiRequest(
     const response = await fetch(fullUrl, options);
     clearTimeout(timeoutId);
 
+    // Clone the response to avoid "body stream already read" error
+    const responseClone = response.clone();
+
     if (!response.ok) {
       // Safe error handling - try JSON first, fallback to text
+      let errorMessage = `HTTP error! status: ${response.status}`;
       try {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        const errorData = await responseClone.json();
+        errorMessage = errorData.message || errorData.error || errorMessage;
       } catch {
-        const errorText = await response.text();
-        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+        try {
+          const errorText = await responseClone.text();
+          errorMessage = errorText || errorMessage;
+        } catch {
+          // Use default error message if both fail
+        }
       }
+      throw new Error(errorMessage);
     }
 
     return response;
@@ -107,7 +116,14 @@ export const queryClient = new QueryClient({
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let errorMessage = `HTTP error! status: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.message || errorData.error || errorMessage;
+            } catch {
+              // Use default error message if response isn't JSON
+            }
+            throw new Error(errorMessage);
           }
 
           return response.json();
