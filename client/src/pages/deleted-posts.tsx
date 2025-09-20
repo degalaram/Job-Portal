@@ -133,14 +133,9 @@ export default function DeletedPosts() {
     console.log('[DELETED POSTS] useEffect triggered - deletedPosts type:', typeof deletedPosts);
     console.log('[DELETED POSTS] useEffect triggered - deletedPosts isArray:', Array.isArray(deletedPosts));
     
-    if (deletedPosts && Array.isArray(deletedPosts)) {
+    if (Array.isArray(deletedPosts)) {
       console.log('[DELETED POSTS] Updating state from React Query:', deletedPosts.length);
       setDeletedPostsState(deletedPosts);
-      setIsLoadingState(false);
-      setErrorState(null);
-    } else if (!isLoading && Array.isArray(deletedPosts) && deletedPosts.length === 0) {
-      console.log('[DELETED POSTS] React Query returned empty array, setting empty state');
-      setDeletedPostsState([]);
       setIsLoadingState(false);
       setErrorState(null);
     } else if (!isLoading) {
