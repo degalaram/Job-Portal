@@ -75,6 +75,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
 
     if (!response.ok) {
       console.error(`[API] Error: ${method} ${url} - ${response.status}`);
+      console.error('[API] Response headers:', Object.fromEntries(response.headers.entries()));
       let errorMessage = `HTTP error! status: ${response.status}`;
       
       try {
@@ -86,7 +87,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
           console.error('[API] Error data:', errorData);
         } else {
           const errorText = await response.text();
-          console.error('[API] Error text (HTML response detected):', errorText.substring(0, 500));
+          console.error('[API] Error text response:', errorText.substring(0, 1000));
           
           // Check if it's an HTML error page
           if (errorText.includes('<!DOCTYPE html>') || errorText.includes('<html')) {
