@@ -93,7 +93,8 @@ const storage = {
   courses: new Map(),
   applications: new Map(),
   contacts: new Map(),
-  passwordResetOtps: new Map()
+  passwordResetOtps: new Map(),
+  deletedPosts: new Map()
 };
 
 // Initialize with sample data
@@ -704,13 +705,37 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Deleted posts storage
-const deletedPosts = new Map();
+// Storage helper methods for deleted posts
+const addDeletedPost = (deletedPost) => {
+  storage.deletedPosts.set(deletedPost.id, deletedPost);
+  console.log(`Added deleted post: ${deletedPost.id} for user: ${deletedPost.userId}`);
+  return deletedPost;
+};
 
-// Job deletion endpoint (soft delete)
-app.delete("/api/jobs/:id", (req, res) => {
+const getUserDeletedPosts = (userId) => {
+  console.log(`Storage: Getting deleted posts for user ${userId}`);
+  const userDeletedPosts = Array.from(storage.deletedPosts.values()).filter(post => post.userId === userId);
+  console.log(`Storage: Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
+  
+  // Ensure each deleted post has complete job data with company information
+  const enrichedDeletedPosts = userDeletedPosts.map(post => {
+    if (post.job && !post.job.company) {
+      // Get company data for the job
+      const company = storage.companies.get(post.job.companyId);
+      if (company) {
+        post.job.company = company;
+      }
+    }
+    return post;
+  });
+  
+  return enrichedDeletedPosts;
+};
+
+// Job deletion endpoint (soft delete) - main endpoint that frontend calls
+app.post("/api/jobs/:jobId/delete", (req, res) => {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.jobId;
     // Accept userId from query parameter to avoid issues with DELETE body
     const userId = req.query.userId || req.body?.userId || null;
     const job = storage.jobs.get(jobId);
@@ -727,7 +752,7 @@ app.delete("/api/jobs/:id", (req, res) => {
       originalType: 'job'
     };
 
-    deletedPosts.set(jobId, deletedPost);
+    addDeletedPost(deletedPost);
     storage.jobs.delete(jobId);
 
     res.json({ message: "Job deleted successfully", deletedPost });
@@ -806,7 +831,7 @@ app.post("/api/jobs/:id/soft-delete", (req, res) => {
       originalType: 'job'
     };
 
-    deletedPosts.set(jobId, deletedPost);
+    addDeletedPost(deletedPost);
     storage.jobs.delete(jobId);
 
     res.json({ message: "Job moved to deleted posts" });
@@ -819,7 +844,7 @@ app.post("/api/jobs/:id/soft-delete", (req, res) => {
 // Get deleted posts endpoint
 app.get("/api/deleted-posts", (req, res) => {
   try {
-    const posts = Array.from(deletedPosts.values());
+    const posts = Array.from(storage.deletedPosts.values());
     res.json(posts);
   } catch (error) {
     console.error("Error fetching deleted posts:", error);
@@ -831,7 +856,7 @@ app.get("/api/deleted-posts", (req, res) => {
 app.get("/api/deleted-posts/user/:userId", (req, res) => {
   try {
     const userId = req.params.userId;
-    const posts = Array.from(deletedPosts.values()).filter(post => post.userId === userId);
+    const posts = getUserDeletedPosts(userId);
     res.json(posts);
   } catch (error) {
     console.error("Error fetching user deleted posts:", error);
@@ -843,7 +868,7 @@ app.get("/api/deleted-posts/user/:userId", (req, res) => {
 app.post("/api/deleted-posts/:id/restore", (req, res) => {
   try {
     const postId = req.params.id;
-    const deletedPost = deletedPosts.get(postId);
+    const deletedPost = storage.deletedPosts.get(postId);
 
     if (!deletedPost) {
       return res.status(404).json({ message: "Deleted post not found" });
@@ -855,7 +880,7 @@ app.post("/api/deleted-posts/:id/restore", (req, res) => {
       storage.jobs.set(postId, jobData);
     }
 
-    deletedPosts.delete(postId);
+    storage.deletedPosts.delete(postId);
     res.json({ message: "Post restored successfully", post: deletedPost });
   } catch (error) {
     console.error("Error restoring post:", error);
@@ -868,8 +893,8 @@ app.delete("/api/deleted-posts/:id", (req, res) => {
   try {
     const postId = req.params.id;
 
-    if (deletedPosts.has(postId)) {
-      deletedPosts.delete(postId);
+    if (storage.deletedPosts.has(postId)) {
+      storage.deletedPosts.delete(postId);
       res.json({ message: "Post permanently deleted" });
     } else {
       res.status(404).json({ message: "Deleted post not found" });
@@ -885,8 +910,8 @@ app.delete("/api/deleted-posts/:id/permanent", (req, res) => {
   try {
     const postId = req.params.id;
 
-    if (deletedPosts.has(postId)) {
-      deletedPosts.delete(postId);
+    if (storage.deletedPosts.has(postId)) {
+      storage.deletedPosts.delete(postId);
       res.json({ message: "Post permanently deleted" });
     } else {
       res.status(404).json({ message: "Deleted post not found" });
