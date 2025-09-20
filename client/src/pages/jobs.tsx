@@ -388,14 +388,14 @@ export default function Jobs() {
     },
     onSuccess: (result, { userId }) => {
       console.log('[JOB DELETE] Mutation success, invalidating queries');
-      
+
       // Invalidate all related queries to ensure immediate UI updates
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', userId] });
       queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', userId] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', userId] });
-      
+
       // Force immediate refetch
       setTimeout(() => {
         queryClient.refetchQueries({ queryKey: ['deleted-posts', userId] });
@@ -480,50 +480,73 @@ export default function Jobs() {
   }) : [];
 
 
-  const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    console.log(`[DELETE HANDLER] Delete button clicked for job: ${jobId}`);
-
-    if (!user || !user.id) {
-      console.log('[DELETE HANDLER] No user found, redirecting to login');
+  const handleDeleteJob = async (jobId: string) => {
+    if (!user?.id) {
       toast({
         title: 'Authentication required',
         description: 'Please log in to delete jobs.',
         variant: 'destructive',
       });
-      navigate('/login');
       return;
     }
 
-    // Validate job ID
-    if (!jobId || jobId.trim() === '') {
-      console.error('[DELETE HANDLER] Invalid job ID:', jobId);
+    try {
+      console.log(`[JOB DELETE] Starting deletion of job ${jobId} for user ${user.id}`);
+      console.log(`[JOB DELETE] API URL: /api/jobs/${jobId}/soft-delete`);
+
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, {
+        userId: user.id
+      });
+
+      console.log(`[JOB DELETE] Response status: ${response.status}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[JOB DELETE] API Error Response:`, errorText);
+
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || 'Unknown error' };
+        }
+
+        console.error(`[JOB DELETE] Parsed Error:`, errorData);
+        throw new Error(errorData.error || errorData.message || 'Failed to delete job');
+      }
+
+      const result = await response.json();
+      console.log(`[JOB DELETE] Success result:`, result);
+
+      // Set flags to trigger refresh in deleted posts
+      localStorage.setItem('job_deleted', 'true');
+      localStorage.setItem('deleted_job_id', jobId);
+      localStorage.setItem('deleted_user_id', user.id);
+      localStorage.setItem('job_deleted_timestamp', Date.now().toString());
+
+      // Dispatch custom event
+      window.dispatchEvent(new CustomEvent('refreshDeletedPosts', { 
+        detail: { jobId, userId: user.id, timestamp: Date.now() } 
+      }));
+
+      // Invalidate and refetch queries
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user.id] });
+
+      console.log(`[JOB DELETE] Queries invalidated, showing success toast`);
+
       toast({
-        title: 'Error',
-        description: 'Invalid job ID. Please refresh the page and try again.',
+        title: 'Job moved to trash',
+        description: `Job "${result.title || jobId}" has been moved to your deleted posts. You can restore it within 5 days.`,
+      });
+
+    } catch (error: any) {
+      console.error('[JOB DELETE] Error:', error);
+      toast({
+        title: 'Failed to delete job',
+        description: error.message || 'An error occurred while deleting the job.',
         variant: 'destructive',
       });
-      return;
-    }
-
-    console.log(`[DELETE HANDLER] Confirmed: Deleting job ${jobId} for user ${user.id}`);
-    console.log(`[DELETE HANDLER] User data:`, { id: user.id, email: user.email });
-
-    if (window.confirm('Are you sure you want to move this job to trash? You can restore it from deleted posts within 5 days.')) {
-      console.log(`[DELETE HANDLER] User confirmed deletion for job ${jobId}`);
-
-      // Show loading state
-      toast({
-        title: 'Deleting job...',
-        description: 'Please wait while we process your request.',
-      });
-
-      // Perform deletion
-      deleteJobMutation.mutate({ jobId, userId: user.id });
-    } else {
-      console.log(`[DELETE HANDLER] User cancelled deletion for job ${jobId}`);
     }
   };
 
