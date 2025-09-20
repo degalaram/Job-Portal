@@ -372,7 +372,7 @@ export default function Jobs() {
       return result;
     },
     onSuccess: (data, variables) => {
-      // Immediately remove the job from appliedJobs state
+      // Immediately clear the applied status for this job
       setAppliedJobs(prev => prev.filter(jobId => jobId !== variables.jobId));
       
       // Immediately update the jobs query cache to remove the deleted job
@@ -381,10 +381,19 @@ export default function Jobs() {
         return oldData.filter((job: any) => job.id !== variables.jobId);
       });
       
-      // Force invalidate and refetch all relevant queries for consistency
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Also update the general jobs query cache
+      queryClient.setQueryData(['jobs'], (oldData: any) => {
+        if (!Array.isArray(oldData)) return oldData;
+        return oldData.filter((job: any) => job.id !== variables.jobId);
+      });
+      
+      // Force invalidate and refetch all relevant queries
+      queryClient.invalidateQueries({ queryKey: ['jobs'], refetchType: 'active' });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      
+      // Force refetch the jobs to ensure UI is updated
+      refetch();
       
       toast({
         title: 'Job deleted successfully',
