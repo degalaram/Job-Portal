@@ -386,15 +386,21 @@ export default function Jobs() {
 
       return result;
     },
-    onSuccess: () => {
-      // Invalidate all related queries to ensure immediate UI updates - using exact company deletion pattern
+    onSuccess: (result, { userId }) => {
+      console.log('[JOB DELETE] Mutation success, invalidating queries');
+      
+      // Invalidate all related queries to ensure immediate UI updates
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', userId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', userId] });
+      queryClient.invalidateQueries({ queryKey: ['applications/user', userId] });
       
-      // Also refetch the current data immediately like company deletion
-      queryClient.refetchQueries({ queryKey: ['jobs'] });
+      // Force immediate refetch
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['deleted-posts', userId] });
+        queryClient.refetchQueries({ queryKey: ['jobs'] });
+      }, 100);
 
       toast({
         title: "Job moved to trash",
