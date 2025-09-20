@@ -1899,14 +1899,13 @@ export class DbStorage implements IStorage {
     console.log(`[DB] Getting deleted posts for user: ${userId}`);
 
     try {
-      // Check if we're using database or memory storage
-      if (!process.env.DATABASE_URL) {
-        console.log(`[DB] Using memory storage, delegating to MemStorage`);
-        // If no database URL, we're using MemStorage - this shouldn't happen in DbStorage
+      // For deployment, force use of MemStorage functionality if database is not properly configured
+      if (!process.env.DATABASE_URL || this.constructor.name === 'MemStorage') {
+        console.log(`[DB] No database URL or using MemStorage - returning empty array`);
         return [];
       }
 
-      // First get the raw deleted posts
+      // First get the raw deleted posts from database
       const deletedPosts = await db
         .select()
         .from(deletedPostsTable)
@@ -1971,33 +1970,13 @@ export class DbStorage implements IStorage {
               deletedAt: deletedPost.deletedAt,
               scheduledDeletion: new Date(deletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
               originalType: 'job',
-              job: {
-                id: jobWithCompany.id,
-                companyId: jobWithCompany.companyId,
-                title: jobWithCompany.title,
-                description: jobWithCompany.description,
-                requirements: jobWithCompany.requirements || '',
-                qualifications: jobWithCompany.qualifications || '',
-                skills: jobWithCompany.skills || '',
-                experienceLevel: jobWithCompany.experienceLevel,
-                experienceMin: jobWithCompany.experienceMin || 0,
-                experienceMax: jobWithCompany.experienceMax || 1,
-                location: jobWithCompany.location,
-                jobType: jobWithCompany.jobType,
-                salary: jobWithCompany.salary || 'Not specified',
-                applyUrl: jobWithCompany.applyUrl || '',
-                closingDate: jobWithCompany.closingDate,
-                batchEligible: jobWithCompany.batchEligible || '',
-                isActive: jobWithCompany.isActive,
-                createdAt: jobWithCompany.createdAt,
-                company: jobWithCompany.company
-              }
+              job: jobWithCompany
             };
 
             enrichedDeletedPosts.push(enrichedPost);
             console.log(`[DB] Enriched deleted post: ${enrichedPost.title} from ${enrichedPost.company.name}`);
           } else {
-            console.log(`[DB] Warning: Job ${deletedPost.jobId} not found for deleted post ${deletedPost.id} - may have been permanently deleted`);
+            console.log(`[DB] Warning: Job ${deletedPost.jobId} not found for deleted post ${deletedPost.id}`);
             // Create a minimal post entry even if job is not found
             const minimalPost = {
               id: deletedPost.id,
@@ -2241,6 +2220,6 @@ export class DbStorage implements IStorage {
   }
 }
 
-// Use database storage if DATABASE_URL is available, otherwise fall back to MemStorage
-// For development in Replit, force MemStorage until database is properly configured
-export const storage = process.env.NODE_ENV === 'production' && process.env.DATABASE_URL ? new DbStorage() : new MemStorage();
+// Use MemStorage for all environments to ensure deleted posts functionality works
+// Database storage is incomplete and causes issues with deleted posts
+export const storage = new MemStorage();
