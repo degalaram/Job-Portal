@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
@@ -151,17 +150,7 @@ export function Navbar() {
                       <FileText className="w-4 h-4 mr-2" />
                       My Applications
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={() => navigate('/deleted-posts')}
-                      data-testid="deleted-posts-menu-item"
-                      className="flex items-center justify-between"
-                    >
-                      <div className="flex items-center">
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Deleted Posts
-                      </div>
-                      <DeletedPostsCounter userId={user?.id} />
-                    </DropdownMenuItem>
+                    
                     <DropdownMenuItem 
                       onClick={() => navigate('/deleted-companies')}
                       data-testid="deleted-companies-menu-item"
