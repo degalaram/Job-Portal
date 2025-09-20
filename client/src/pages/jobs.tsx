@@ -371,56 +371,32 @@ export default function Jobs() {
       console.log('Delete job success:', result);
       return result;
     },
-    onMutate: async ({ jobId }) => {
-      // Optimistic update - immediately remove job from UI
-      console.log('Optimistically removing job from UI:', jobId);
-      
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['jobs', user?.id] });
-      
-      // Immediately clear the applied status for this job
-      setAppliedJobs(prev => prev.filter(id => id !== jobId));
-      
-      // Get the previous value for rollback
-      const previousJobs = queryClient.getQueryData(['jobs', user?.id]);
-      
-      // Optimistically update the jobs cache to remove the deleted job
-      queryClient.setQueryData(['jobs', user?.id], (oldData: any) => {
-        if (!Array.isArray(oldData)) return oldData;
-        return oldData.filter((job: any) => job.id !== jobId);
-      });
-      
-      return { previousJobs };
-    },
-    onError: (error: any, variables, context) => {
-      // Rollback on error
-      if (context?.previousJobs) {
-        queryClient.setQueryData(['jobs', user?.id], context.previousJobs);
-      }
-      
-      console.error('Delete job error:', error);
-      toast({
-        title: 'Delete failed',
-        description: error.message || 'Failed to delete job',
-        variant: 'destructive',
-      });
-    },
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Invalidate queries to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Clear applied status immediately for this job
+      setAppliedJobs(prev => prev.filter(id => id !== variables.jobId));
+      
+      // Invalidate specific queries to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      
+      // Refetch jobs immediately to ensure the deleted job is removed from UI
+      refetch();
       
       toast({
         title: 'Job deleted successfully',
         description: 'The job has been moved to deleted posts and can be restored within 5 days.',
       });
     },
-    onSettled: () => {
-      // Refetch to ensure we have the latest data
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+    onError: (error: any) => {
+      console.error('Delete job error:', error);
+      toast({
+        title: 'Delete failed',
+        description: error.message || 'Failed to delete job',
+        variant: 'destructive',
+      });
     },
   });
 
