@@ -63,7 +63,7 @@ function EditDeletedCompanyDialog({ company, children }: { company: DeletedCompa
   const updateCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
       // Auto-analyze and set logo before sending
-      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
+      const logoUrl = getCompanyLogoFromUrl(data.website || undefined, data.linkedinUrl || undefined, data.name);
       const updatedData = {
         ...data,
         logo: logoUrl || data.logo || ''
