@@ -347,40 +347,25 @@ export default function Jobs() {
 
       console.log(`Attempting to delete job ${jobId} for user ${userId}`);
 
-      // Use the correct delete endpoint and send user-id in headers as expected by backend
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
+      // Use the correct delete endpoint and send userId in the request body
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId });
 
       if (!response.ok) {
         let errorMessage = 'Failed to delete job';
         
         try {
-          const responseText = await response.text();
-          console.error('Delete job response error:', responseText);
-          
-          if (responseText) {
-            try {
-              const errorData = JSON.parse(responseText);
-              errorMessage = errorData.error || errorData.message || errorMessage;
-            } catch {
-              errorMessage = responseText || errorMessage;
-            }
-          }
-        } catch (readError) {
-          console.error('Error reading response:', readError);
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
           errorMessage = `Server error: ${response.status}`;
         }
 
         throw new Error(errorMessage);
       }
 
-      try {
-        const result = await response.json();
-        console.log('Delete job success:', result);
-        return result;
-      } catch (jsonError) {
-        console.log('Response was successful but not JSON, treating as success');
-        return { message: 'Job deleted successfully' };
-      }
+      const result = await response.json();
+      console.log('Delete job success:', result);
+      return result;
     },
     onSuccess: () => {
       // Update the UI by invalidating queries (tab already switched)
