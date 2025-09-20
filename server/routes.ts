@@ -448,63 +448,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[DELETED POSTS API] Fetching from storage for user: ${userId}`);
       
-      // Add timeout to prevent hanging requests
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 15000)
-      );
-      
-      const deletedPostsPromise = storage.getUserDeletedPosts(userId);
-      const deletedPosts = await Promise.race([deletedPostsPromise, timeoutPromise]);
-      
-      console.log(`[DELETED POSTS API] Found ${Array.isArray(deletedPosts) ? deletedPosts.length : 'non-array'} deleted posts`);
-
-      // Enhanced debugging - always log what we're returning
-      console.log(`[DELETED POSTS API] DETAILED DEBUG - User: ${userId}`);
-      console.log(`[DELETED POSTS API] DETAILED DEBUG - Posts array:`, deletedPosts);
-      console.log(`[DELETED POSTS API] DETAILED DEBUG - Array length:`, deletedPosts?.length);
-      console.log(`[DELETED POSTS API] DETAILED DEBUG - Is array:`, Array.isArray(deletedPosts));
+      // Get deleted posts with enhanced error handling
+      let deletedPosts = [];
+      try {
+        deletedPosts = await storage.getUserDeletedPosts(userId);
+        console.log(`[DELETED POSTS API] Storage returned:`, deletedPosts);
+      } catch (storageError) {
+        console.error(`[DELETED POSTS API] Storage error:`, storageError);
+        deletedPosts = [];
+      }
 
       // Ensure we always return an array
       if (!Array.isArray(deletedPosts)) {
         console.log('[DELETED POSTS API] Storage returned non-array, converting to empty array');
-        return res.status(200).json([]);
+        deletedPosts = [];
       }
 
-      console.log(`[DELETED POSTS API] Returning ${deletedPosts.length} deleted posts for user ${userId}`);
+      // Filter and enrich deleted posts to ensure they have all required data
+      const enrichedPosts = deletedPosts.map(post => {
+        // Ensure post has minimum required structure
+        const enrichedPost = {
+          id: post.id,
+          userId: post.userId,
+          jobId: post.jobId || post.originalId,
+          originalId: post.originalId || post.jobId,
+          type: post.type || 'job',
+          title: post.title || 'Unknown Job',
+          description: post.description || 'No description available',
+          location: post.location || 'Location not specified',
+          salary: post.salary || 'Salary not specified',
+          skills: post.skills || '',
+          requirements: post.requirements || '',
+          qualifications: post.qualifications || '',
+          experienceLevel: post.experienceLevel || 'fresher',
+          experienceMin: post.experienceMin || 0,
+          experienceMax: post.experienceMax || 1,
+          jobType: post.jobType || 'full-time',
+          applyUrl: post.applyUrl || '',
+          closingDate: post.closingDate || new Date(),
+          batchEligible: post.batchEligible || '',
+          isActive: post.isActive || true,
+          deletedAt: post.deletedAt || new Date(),
+          company: post.company || {
+            id: 'unknown',
+            name: 'Unknown Company',
+            description: '',
+            website: '',
+            linkedinUrl: '',
+            logo: '',
+            location: post.location || 'Unknown Location',
+            industry: '',
+            size: 'medium',
+            founded: '',
+            createdAt: new Date()
+          },
+          job: post.job // Keep original job data if available
+        };
+
+        return enrichedPost;
+      });
+
+      console.log(`[DELETED POSTS API] Returning ${enrichedPosts.length} enriched deleted posts for user ${userId}`);
       
-      if (deletedPosts.length > 0) {
-        console.log('[DELETED POSTS API] Sample deleted post:', {
-          id: deletedPosts[0].id,
-          jobTitle: deletedPosts[0].title || deletedPosts[0].job?.title,
-          deletedAt: deletedPosts[0].deletedAt,
-          hasJobData: !!deletedPosts[0].job,
-          companyName: deletedPosts[0].company?.name
+      if (enrichedPosts.length > 0) {
+        console.log('[DELETED POSTS API] Sample enriched post:', {
+          id: enrichedPosts[0].id,
+          title: enrichedPosts[0].title,
+          company: enrichedPosts[0].company.name,
+          deletedAt: enrichedPosts[0].deletedAt
         });
-        
-        // Log ALL posts for debugging
-        deletedPosts.forEach((post, index) => {
-          console.log(`[DELETED POSTS API] Post ${index + 1}:`, {
-            id: post.id,
-            title: post.title,
-            company: post.company?.name,
-            deletedAt: post.deletedAt
-          });
-        });
-      } else {
-        console.log('[DELETED POSTS API] No deleted posts to return for user', userId);
       }
 
-      // Force return the data with explicit status
-      const responseData = deletedPosts;
-      console.log(`[DELETED POSTS API] FINAL RESPONSE:`, responseData);
-      res.status(200).json(responseData);
+      res.status(200).json(enrichedPosts);
     } catch (error) {
       console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
-      
-      // Always return empty array for client-side stability, but log the error
-      console.error('[DELETED POSTS API] Full error details:', error);
-      
-      // Return empty array to prevent UI breaking
       res.status(200).json([]);
     }
   });
