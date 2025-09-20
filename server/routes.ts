@@ -226,60 +226,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Soft delete a job (move to deleted posts - similar to companies)
+  // Soft delete a job (move to deleted posts - works exactly like company deletion)
   app.post('/api/jobs/:jobId/soft-delete', async (req, res) => {
-    // Set proper headers first
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-cache');
-    
-    console.log(`[JOB DELETE] ${new Date().toISOString()} - Soft delete request received`);
-    console.log(`[JOB DELETE] Params:`, req.params);
-    console.log(`[JOB DELETE] Body:`, req.body);
-    console.log(`[JOB DELETE] Headers user-id:`, req.headers['user-id']);
-    
     try {
       const { jobId } = req.params;
       const userId = req.body?.userId || req.headers['user-id'] as string;
 
-      console.log(`[JOB DELETE] Processing: jobId=${jobId}, userId=${userId}`);
+      console.log(`[JOB DELETE] Moving job ${jobId} to trash for user ${userId}`);
 
-      // Validate inputs with proper error responses
+      // Validate inputs
       if (!userId || userId.trim() === '') {
-        console.log('[JOB DELETE] User ID missing or empty');
         return res.status(400).json({ 
           error: 'User ID is required',
-          success: false,
-          received: { userId, jobId }
+          success: false
         });
       }
 
       if (!jobId || jobId.trim() === '') {
-        console.log('[JOB DELETE] Job ID missing or empty');
         return res.status(400).json({ 
           error: 'Job ID is required',
-          success: false,
-          received: { userId, jobId }
+          success: false
         });
       }
 
-      // Check if job exists first
+      // Check if job exists
       const existingJob = await storage.getJob(jobId);
       if (!existingJob) {
         console.log(`[JOB DELETE] Job not found: ${jobId}`);
         return res.status(404).json({
           error: 'Job not found',
-          success: false,
-          jobId: jobId
+          success: false
         });
       }
 
-      // Create application if user hasn't applied yet (this ensures there's something to "delete")
+      // Create application if user hasn't applied yet (ensures there's something to delete)
       try {
         const userApplications = await storage.getUserApplications(userId);
         const existingApplication = userApplications.find(app => app.job.id === jobId);
         
         if (!existingApplication) {
-          console.log(`[JOB DELETE] Creating application first for user ${userId} and job ${jobId}`);
+          console.log(`[JOB DELETE] Creating application for user ${userId} and job ${jobId}`);
           await storage.createApplication({
             userId: userId,
             jobId: jobId,
@@ -287,54 +273,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       } catch (appError) {
-        console.log(`[JOB DELETE] Could not create application, continuing: ${appError}`);
+        console.log(`[JOB DELETE] Application creation warning: ${appError}`);
       }
 
-      // Perform soft delete (this will handle checking if job exists and if already deleted)
-      console.log(`[JOB DELETE] Performing soft delete for job ${jobId} and user ${userId}...`);
+      // Perform soft delete using the same pattern as companies
       const deletedPost = await storage.softDeleteJob(jobId, userId);
       
-      console.log(`[JOB DELETE] Soft delete successful:`, {
-        id: deletedPost.id,
-        jobId: deletedPost.jobId,
-        userId: deletedPost.userId,
-        title: deletedPost.title || deletedPost.job?.title
-      });
+      console.log(`[JOB DELETE] Job successfully moved to trash`);
 
-      // Trigger browser storage event to refresh deleted posts
-      console.log(`[JOB DELETE] Setting browser refresh flag for deleted posts`);
-
-      res.status(200).json({ 
+      res.json({ 
         message: 'Job moved to trash successfully',
         deletedPost: deletedPost,
-        success: true,
-        jobId: jobId,
-        userId: userId,
-        timestamp: new Date().toISOString()
+        success: true
       });
         
     } catch (error) {
-      console.error('[JOB DELETE] Error during deletion:', error);
+      console.error('[JOB DELETE] Error:', error);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorStack = error instanceof Error ? error.stack : '';
       
-      console.error('[JOB DELETE] Error stack:', errorStack);
-      
-      // Determine appropriate status code
       let statusCode = 500;
       if (errorMessage.includes('not found')) {
         statusCode = 404;
       } else if (errorMessage.includes('already deleted')) {
-        statusCode = 409; // Conflict
+        statusCode = 409;
       }
       
-      // Ensure we return JSON even on error
       res.status(statusCode).json({ 
-        error: 'Failed to delete job', 
+        error: 'Failed to move job to trash', 
         message: errorMessage,
-        success: false,
-        timestamp: new Date().toISOString()
+        success: false
       });
     }
   });
