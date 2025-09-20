@@ -158,6 +158,13 @@ export function Navbar() {
                       <Building className="w-4 h-4 mr-2" />
                       Deleted Companies
                     </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => navigate('/deleted-posts')}
+                      data-testid="deleted-posts-menu-item"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Deleted Posts
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem 
                       onClick={handleLogout}
@@ -211,7 +218,18 @@ export function Navbar() {
               >
                 My Applications
               </a>
-              
+              <a
+                href="/my-applications"
+                className="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                My Applications
+              </a>
+              <a
+                href="/deleted-posts"
+                className="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Deleted Posts
+              </a>
             </div>
           </div>
         )}
