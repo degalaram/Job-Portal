@@ -267,17 +267,7 @@ export default function MyApplications() {
                           <ExternalLink className="w-3 h-3 mr-1" />
                           View Job
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSoftDelete(application.id)}
-                          disabled={softDeleteMutation.isPending}
-                          data-testid={`delete-post-${application.id}`}
-                          className="text-xs h-8 w-full sm:w-auto text-orange-600 border-orange-300 hover:bg-orange-50"
-                        >
-                          <Trash2 className="w-3 h-3 mr-1" />
-                          Delete Post
-                        </Button>
+                        {/* Removed the Delete Post button */}
                       </div>
                     </div>
                   </CardContent>
