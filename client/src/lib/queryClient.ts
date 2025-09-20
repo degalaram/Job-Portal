@@ -12,7 +12,7 @@ const getApiBaseUrl = () => {
   if (window.location.hostname.includes('replit.dev') || 
       window.location.hostname.includes('repl.co') || 
       window.location.hostname.includes('replit.app')) {
-    const replitUrl = `${window.location.protocol}//${window.location.hostname}`;
+    const replitUrl = window.location.origin;
     console.log('Using Replit URL:', replitUrl);
     return replitUrl;
   }
