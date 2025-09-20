@@ -375,25 +375,34 @@ export default function Jobs() {
       // Immediately clear the applied status for this job
       setAppliedJobs(prev => prev.filter(jobId => jobId !== variables.jobId));
       
-      // Immediately update the jobs query cache to remove the deleted job
+      // Immediately update ALL job-related query caches to remove the deleted job
       queryClient.setQueryData(['jobs', user?.id], (oldData: any) => {
         if (!Array.isArray(oldData)) return oldData;
+        console.log('Removing job from user-specific jobs cache:', variables.jobId);
         return oldData.filter((job: any) => job.id !== variables.jobId);
       });
       
-      // Also update the general jobs query cache
       queryClient.setQueryData(['jobs'], (oldData: any) => {
         if (!Array.isArray(oldData)) return oldData;
+        console.log('Removing job from general jobs cache:', variables.jobId);
         return oldData.filter((job: any) => job.id !== variables.jobId);
       });
       
+      // Update allJobs state directly to force immediate UI update
+      if (Array.isArray(allJobs)) {
+        const updatedJobs = allJobs.filter((job: any) => job.id !== variables.jobId);
+        queryClient.setQueryData(['jobs', user?.id], updatedJobs);
+      }
+      
       // Force invalidate and refetch all relevant queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'], refetchType: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       
-      // Force refetch the jobs to ensure UI is updated
-      refetch();
+      // Force immediate refetch to ensure UI is updated
+      refetch().then(() => {
+        console.log('Jobs refetched after deletion');
+      });
       
       toast({
         title: 'Job deleted successfully',
