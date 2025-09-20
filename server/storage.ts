@@ -1154,24 +1154,24 @@ export class MemStorage implements IStorage {
 
   async getUserDeletedPosts(userId: string): Promise<any[]> {
     console.log(`[STORAGE] Getting deleted posts for user ${userId} at ${new Date().toISOString()}`);
-    
+
     // Ensure deletedPosts is initialized
     if (!this.deletedPosts) {
       console.log(`[STORAGE] Initializing deletedPosts Map for user ${userId}`);
       this.deletedPosts = new Map<string, any>();
     }
-    
+
     console.log(`[STORAGE] Total deleted posts in storage: ${this.deletedPosts.size}`);
-    
+
     const allDeletedPosts = Array.from(this.deletedPosts.values());
     console.log(`[STORAGE] All deleted posts:`, allDeletedPosts.map(p => ({ id: p.id, userId: p.userId, jobId: p.jobId })));
-    
+
     const userDeletedPosts = allDeletedPosts.filter(post => {
       const matches = post.userId === userId;
       console.log(`[STORAGE] Post ${post.id}: userId=${post.userId}, matches=${matches}`);
       return matches;
     });
-    
+
     console.log(`[STORAGE] Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
 
     if (userDeletedPosts.length === 0) {
@@ -1182,13 +1182,13 @@ export class MemStorage implements IStorage {
     // Return the deleted posts with complete data (they should already have job and company data from soft delete)
     const enrichedDeletedPosts = userDeletedPosts.map(post => {
       console.log(`[STORAGE] Processing deleted post ${post.id}`);
-      
+
       // The post should already have complete job and company data from the soft delete process
       if (post.job && post.company) {
         console.log(`[STORAGE] Post ${post.id} already has complete data`);
         return post;
       }
-      
+
       // If missing job data, reconstruct it from the stored fields
       if (!post.job && post.jobId) {
         console.log(`[STORAGE] Reconstructing job data for post ${post.id}`);
@@ -1214,7 +1214,7 @@ export class MemStorage implements IStorage {
           company: post.company
         };
       }
-      
+
       // If missing company data but have job data with companyId
       if (post.job && !post.job.company && post.job.companyId) {
         const company = this.companies.get(post.job.companyId);
@@ -1224,12 +1224,12 @@ export class MemStorage implements IStorage {
           console.log(`[STORAGE] Added company data to post ${post.id}`);
         }
       }
-      
+
       // Ensure company data is available at the top level too
       if (!post.company && post.job?.company) {
         post.company = post.job.company;
       }
-      
+
       return post;
     });
 
@@ -1237,109 +1237,47 @@ export class MemStorage implements IStorage {
     enrichedDeletedPosts.forEach(post => {
       console.log(`[STORAGE] Post ${post.id}: title="${post.title}", company="${post.company?.name}", hasJobData=${!!post.job}`);
     });
-    
+
     return enrichedDeletedPosts;
   }
 
   async softDeleteJob(jobId: string, userId: string): Promise<any> {
-    console.log(`[STORAGE] softDeleteJob called with jobId: ${jobId}, userId: ${userId}`);
-    
-    if (!jobId || !userId) {
-      throw new Error('JobId and userId are required for soft delete');
-    }
-    
-    const jobWithCompany = await this.getJob(jobId);
-    if (!jobWithCompany) {
-      console.log(`[STORAGE] Job not found: ${jobId}`);
-      throw new Error(`Job not found: ${jobId}`);
-    }
+    console.log(`[JOB DELETE] Soft deleting job ${jobId} for user ${userId}`);
 
-    console.log(`[STORAGE] Job found: ${jobWithCompany.title} by ${jobWithCompany.company.name}`);
-
-    // Initialize deletedPosts if not exists
-    if (!this.deletedPosts) {
-      this.deletedPosts = new Map<string, any>();
-      console.log(`[STORAGE] Initialized deletedPosts Map`);
-    }
-
-    // Check if already deleted by this user
-    const existingDeleted = Array.from(this.deletedPosts.values()).find(
-      post => post.userId === userId && (post.jobId === jobId || post.originalId === jobId)
-    );
-    
-    if (existingDeleted) {
-      console.log(`[STORAGE] Job ${jobId} already deleted for user ${userId}, returning existing`);
-      return existingDeleted;
-    }
-
-    // Create application if not exists (to track the delete action)
-    const userApplications = await this.getUserApplications(userId);
-    const existingApplication = userApplications.find(app => app.job.id === jobId);
-
-    let applicationId = null;
-    if (!existingApplication) {
-      try {
-        const newApplication = {
-          id: randomUUID(),
-          userId,
-          jobId,
-          status: 'applied' as const,
-          appliedAt: new Date(),
-        };
-        this.applications.set(newApplication.id, newApplication);
-        applicationId = newApplication.id;
-        console.log(`[STORAGE] Created application ${applicationId} for user ${userId} and job ${jobId}`);
-      } catch (appError) {
-        console.log(`[STORAGE] Failed to create application, continuing without: ${appError}`);
+    try {
+      // Get the complete job with company data
+      const jobWithCompany = await this.getJob(jobId);
+      if (!jobWithCompany) {
+        throw new Error('Job not found');
       }
-    } else {
-      applicationId = existingApplication.id;
-      console.log(`[STORAGE] Using existing application: ${applicationId}`);
-    }
 
-    // Create deleted post entry with complete job and company data
-    const deletedPostId = randomUUID();
-    const deletedPost = {
-      id: deletedPostId,
-      userId: userId,
-      originalId: jobId,
-      jobId: jobId,
-      applicationId: applicationId,
-      type: 'job' as const,
-      title: jobWithCompany.title,
-      description: jobWithCompany.description,
-      requirements: jobWithCompany.requirements,
-      qualifications: jobWithCompany.qualifications,
-      skills: jobWithCompany.skills,
-      experienceLevel: jobWithCompany.experienceLevel,
-      experienceMin: jobWithCompany.experienceMin,
-      experienceMax: jobWithCompany.experienceMax,
-      location: jobWithCompany.location,
-      jobType: jobWithCompany.jobType,
-      salary: jobWithCompany.salary,
-      applyUrl: jobWithCompany.applyUrl,
-      closingDate: jobWithCompany.closingDate,
-      batchEligible: jobWithCompany.batchEligible,
-      isActive: jobWithCompany.isActive,
-      company: {
-        id: jobWithCompany.company.id,
-        name: jobWithCompany.company.name,
-        description: jobWithCompany.company.description,
-        website: jobWithCompany.company.website,
-        linkedinUrl: jobWithCompany.company.linkedinUrl,
-        logo: jobWithCompany.company.logo,
-        location: jobWithCompany.company.location,
-        industry: jobWithCompany.company.industry,
-        size: jobWithCompany.company.size,
-        founded: jobWithCompany.company.founded,
-        createdAt: jobWithCompany.company.createdAt
-      },
-      deletedAt: new Date(),
-      scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
-      originalType: 'job',
-      job: {
-        id: jobWithCompany.id,
-        companyId: jobWithCompany.companyId,
+      console.log(`[JOB DELETE] Found job: ${jobWithCompany.title} from ${jobWithCompany.company.name}`);
+
+      // Check if already deleted for this user
+      const existingDeletedPost = Array.from(this.deletedPosts.values()).find(
+        post => post.userId === userId && (post.jobId === jobId || post.originalId === jobId)
+      );
+
+      if (existingDeletedPost) {
+        console.log(`[JOB DELETE] Already deleted, returning existing`);
+        return {
+          ...existingDeletedPost,
+          job: jobWithCompany,
+          title: jobWithCompany.title,
+          company: jobWithCompany.company,
+          scheduledDeletion: new Date(existingDeletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
+          originalType: 'job'
+        };
+      }
+
+      // Create deleted post entry
+      const deletedPostId = randomUUID();
+      const deletedPost = {
+        id: deletedPostId,
+        userId,
+        jobId,
+        originalId: jobId,
+        type: 'job',
         title: jobWithCompany.title,
         description: jobWithCompany.description,
         requirements: jobWithCompany.requirements,
@@ -1355,34 +1293,34 @@ export class MemStorage implements IStorage {
         closingDate: jobWithCompany.closingDate,
         batchEligible: jobWithCompany.batchEligible,
         isActive: jobWithCompany.isActive,
-        createdAt: jobWithCompany.createdAt,
-        company: jobWithCompany.company
-      }
-    };
+        company: {
+          id: jobWithCompany.company.id,
+          name: jobWithCompany.company.name,
+          description: jobWithCompany.company.description,
+          website: jobWithCompany.company.website,
+          linkedinUrl: jobWithCompany.company.linkedinUrl,
+          logo: jobWithCompany.company.logo,
+          location: jobWithCompany.company.location,
+          industry: jobWithCompany.company.industry,
+          size: jobWithCompany.company.size,
+          founded: jobWithCompany.company.founded,
+          createdAt: jobWithCompany.company.createdAt
+        },
+        deletedAt: new Date(),
+        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        originalType: 'job'
+      };
 
-    // Store the deleted post
-    this.deletedPosts.set(deletedPostId, deletedPost);
+      this.deletedPosts.set(deletedPostId, deletedPost);
 
-    console.log(`[STORAGE] SUCCESSFULLY stored deleted post ${deletedPostId} for user ${userId}`);
-    console.log(`[STORAGE] Total deleted posts now: ${this.deletedPosts.size}`);
-    console.log(`[STORAGE] Deleted post details:`, {
-      id: deletedPost.id,
-      userId: deletedPost.userId,
-      jobId: deletedPost.jobId,
-      title: deletedPost.title,
-      companyName: deletedPost.company.name,
-      deletedAt: deletedPost.deletedAt
-    });
+      console.log(`[JOB DELETE] Created deleted post entry successfully`);
 
-    // Verify the post was stored correctly
-    const verification = this.deletedPosts.get(deletedPostId);
-    if (verification) {
-      console.log(`[STORAGE] VERIFICATION PASSED: Deleted post ${deletedPostId} is properly stored`);
-    } else {
-      console.error(`[STORAGE] VERIFICATION FAILED: Deleted post ${deletedPostId} was not stored properly`);
+      // Return enriched deleted post with complete data (like companies)
+      return deletedPost;
+    } catch (error) {
+      console.error(`[JOB DELETE] Error:`, error);
+      throw error;
     }
-
-    return deletedPost;
   }
 
   async softDeleteApplication(applicationId: string): Promise<any> {
@@ -1956,7 +1894,7 @@ export class DbStorage implements IStorage {
 
       // For each deleted post, get the complete job and company data
       const enrichedDeletedPosts = [];
-      
+
       for (const deletedPost of deletedPosts) {
         try {
           if (!deletedPost.jobId) {
@@ -1966,7 +1904,7 @@ export class DbStorage implements IStorage {
 
           // Get the complete job with company data
           const jobWithCompany = await this.getJob(deletedPost.jobId);
-          
+
           if (jobWithCompany) {
             const enrichedPost = {
               id: deletedPost.id,
@@ -2028,7 +1966,7 @@ export class DbStorage implements IStorage {
                 company: jobWithCompany.company
               }
             };
-            
+
             enrichedDeletedPosts.push(enrichedPost);
             console.log(`[DB] Enriched deleted post: ${enrichedPost.title} from ${enrichedPost.company.name}`);
           } else {
@@ -2073,7 +2011,7 @@ export class DbStorage implements IStorage {
               scheduledDeletion: new Date(deletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
               originalType: 'job'
             };
-            
+
             enrichedDeletedPosts.push(minimalPost);
           }
         } catch (error) {
@@ -2097,18 +2035,18 @@ export class DbStorage implements IStorage {
   }
 
   async softDeleteJob(jobId: string, userId: string): Promise<any> {
-    console.log(`[${new Date().toLocaleTimeString()}] Soft deleting job ${jobId} for user ${userId}`);
+    console.log(`[JOB DELETE] Soft deleting job ${jobId} for user ${userId}`);
 
     try {
-      // Get the complete job with company details (like company deletion does)
+      // Get the complete job with company data
       const jobWithCompany = await this.getJob(jobId);
       if (!jobWithCompany) {
-        throw new Error(`Job ${jobId} not found`);
+        throw new Error('Job not found');
       }
 
-      console.log(`[${new Date().toLocaleTimeString()}] Job found:`, jobWithCompany.title);
+      console.log(`[JOB DELETE] Found job: ${jobWithCompany.title} from ${jobWithCompany.company.name}`);
 
-      // Check if already deleted by this user
+      // Check if already deleted for this user
       const existingDeletedPost = await db
         .select()
         .from(deletedPostsTable)
@@ -2119,23 +2057,18 @@ export class DbStorage implements IStorage {
         .limit(1);
 
       if (existingDeletedPost.length > 0) {
-        console.log(`[${new Date().toLocaleTimeString()}] Job ${jobId} already soft deleted for user ${userId}`);
-        // Return enriched existing deleted post
+        console.log(`[JOB DELETE] Already deleted, returning existing`);
         return {
           ...existingDeletedPost[0],
           job: jobWithCompany,
           title: jobWithCompany.title,
-          description: jobWithCompany.description,
           company: jobWithCompany.company,
-          location: jobWithCompany.location,
-          salary: jobWithCompany.salary,
-          skills: jobWithCompany.skills,
           scheduledDeletion: new Date(existingDeletedPost[0].deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
           originalType: 'job'
         };
       }
 
-      // Create deleted post entry with complete job data (similar to deleted companies)
+      // Create deleted post entry
       const deletedPost = {
         id: nanoid(),
         userId,
@@ -2145,23 +2078,20 @@ export class DbStorage implements IStorage {
         deletedAt: new Date()
       };
 
-      console.log(`[${new Date().toLocaleTimeString()}] Creating deleted post entry:`, deletedPost);
-
       const result = await db
         .insert(deletedPostsTable)
         .values(deletedPost)
         .returning();
 
-      console.log(`[${new Date().toLocaleTimeString()}] Successfully created deleted post entry:`, result[0]);
+      console.log(`[JOB DELETE] Created deleted post entry successfully`);
 
-      // Return the deleted post with complete job data (exactly like companies do)
-      const enrichedDeletedPost = {
+      // Return enriched deleted post with complete data (like companies)
+      return {
         id: result[0].id,
         userId: result[0].userId,
         originalId: result[0].originalId || result[0].jobId,
         jobId: result[0].jobId,
-        applicationId: result[0].applicationId,
-        type: 'job' as const,
+        type: 'job',
         title: jobWithCompany.title,
         description: jobWithCompany.description,
         requirements: jobWithCompany.requirements,
@@ -2177,49 +2107,13 @@ export class DbStorage implements IStorage {
         closingDate: jobWithCompany.closingDate,
         batchEligible: jobWithCompany.batchEligible,
         isActive: jobWithCompany.isActive,
-        company: {
-          id: jobWithCompany.company.id,
-          name: jobWithCompany.company.name,
-          description: jobWithCompany.company.description,
-          website: jobWithCompany.company.website,
-          linkedinUrl: jobWithCompany.company.linkedinUrl,
-          logo: jobWithCompany.company.logo,
-          location: jobWithCompany.company.location,
-          industry: jobWithCompany.company.industry,
-          size: jobWithCompany.company.size,
-          founded: jobWithCompany.company.founded,
-          createdAt: jobWithCompany.company.createdAt
-        },
+        company: jobWithCompany.company,
         deletedAt: result[0].deletedAt,
-        scheduledDeletion: new Date(result[0].deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
-        originalType: 'job',
-        job: {
-          id: jobWithCompany.id,
-          companyId: jobWithCompany.companyId,
-          title: jobWithCompany.title,
-          description: jobWithCompany.description,
-          requirements: jobWithCompany.requirements,
-          qualifications: jobWithCompany.qualifications,
-          skills: jobWithCompany.skills,
-          experienceLevel: jobWithCompany.experienceLevel,
-          experienceMin: jobWithCompany.experienceMin,
-          experienceMax: jobWithCompany.experienceMax,
-          location: jobWithCompany.location,
-          jobType: jobWithCompany.jobType,
-          salary: jobWithCompany.salary,
-          applyUrl: jobWithCompany.applyUrl,
-          closingDate: jobWithCompany.closingDate,
-          batchEligible: jobWithCompany.batchEligible,
-          isActive: jobWithCompany.isActive,
-          createdAt: jobWithCompany.createdAt,
-          company: jobWithCompany.company
-        }
+        scheduledDeletion: new Date(result[0].deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
+        originalType: 'job'
       };
-
-      console.log(`[${new Date().toLocaleTimeString()}] Job ${jobId} moved to trash for user ${userId}`);
-      return enrichedDeletedPost;
     } catch (error) {
-      console.error(`[${new Date().toLocaleTimeString()}] Error soft deleting job ${jobId} for user ${userId}:`, error);
+      console.error(`[JOB DELETE] Error:`, error);
       throw error;
     }
   }
@@ -2279,7 +2173,7 @@ export class DbStorage implements IStorage {
         .delete(applicationsTable)
         .where(and(
           eq(applicationsTable.jobId, deletedPost.jobId!),
-          eq(applicationsTable.userId, deletedPost.userId)
+          eq(deletedPostsTable.userId, deletedPost.userId)
         ));
 
       console.log(`[DB] Removed applications for job ${deletedPost.jobId} and user ${deletedPost.userId}`);
@@ -2290,7 +2184,7 @@ export class DbStorage implements IStorage {
         .where(eq(deletedPostsTable.id, deletedPostId));
 
       console.log(`[DB] Successfully restored job ${deletedPost.jobId} for user ${deletedPost.userId}`);
-      
+
       return {
         message: 'Post restored successfully',
         jobId: deletedPost.jobId,
