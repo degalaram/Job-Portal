@@ -43,7 +43,7 @@ export default function DeletedPosts() {
         setUser(parsedUser);
       } else {
         navigate('/login');
-        return;
+        return;a
       }
     } catch (error) {
       console.error('Error parsing user data:', error);
@@ -59,72 +59,37 @@ export default function DeletedPosts() {
   const [isLoadingState, setIsLoadingState] = useState(true);
   const [errorState, setErrorState] = useState(null);
 
-  // Use React Query for proper data fetching
+  // Use React Query for proper data fetching - like company deletion system
   const { data: deletedPosts = [], isLoading, error, refetch } = useQuery({
     queryKey: ['deleted-posts', user?.id],
     queryFn: async () => {
       if (!user?.id) {
-        console.log('[DELETED POSTS] No user ID available for fetching deleted posts');
+        console.log('[DELETED POSTS] No user ID available');
         return [];
       }
       
-      console.log(`[DELETED POSTS] Fetching deleted posts for user: ${user.id} at ${new Date().toISOString()}`);
+      console.log(`[DELETED POSTS] Fetching deleted posts for user: ${user.id}`);
       
-      try {
-        const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}`, undefined, {
-          'user-id': user.id,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        });
-        
-        console.log(`[DELETED POSTS] API Response status: ${response.status}`);
-        
-        if (!response.ok) {
-          if (response.status === 404) {
-            console.log('[DELETED POSTS] No deleted posts found (404), returning empty array');
-            return [];
-          }
-          
-          console.warn(`[DELETED POSTS] API error ${response.status}, returning empty array`);
+      const response = await apiRequest('GET', `/api/deleted-posts/user/${user.id}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('[DELETED POSTS] No deleted posts found');
           return [];
         }
-        
-        const data = await response.json();
-        console.log(`[DELETED POSTS] Raw API response:`, data);
-        
-        // Ensure we return an array
-        if (!Array.isArray(data)) {
-          console.warn('[DELETED POSTS] API returned non-array data:', data);
-          return [];
-        }
-        
-        console.log(`[DELETED POSTS] Successfully loaded ${data.length} deleted posts for user ${user.id}`);
-        
-        if (data.length > 0) {
-          console.log('[DELETED POSTS] Sample posts:', data.map(post => ({
-            id: post.id,
-            title: post.title,
-            company: post.company?.name,
-            deletedAt: post.deletedAt
-          })));
-        }
-        
-        return data;
-      } catch (error) {
-        console.error('[DELETED POSTS] Error fetching deleted posts:', error);
-        // Return empty array instead of throwing to prevent unhandled rejections
-        return [];
+        throw new Error(`Failed to fetch deleted posts: ${response.status}`);
       }
+      
+      const data = await response.json();
+      console.log(`[DELETED POSTS] Loaded ${data.length} deleted posts`);
+      
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!user?.id && !userLoading,
-    retry: 2,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    refetchInterval: 5000, // Refresh every 5 seconds to catch new deletions
+    refetchInterval: 2000, // Refresh every 2 seconds like deleted companies
     refetchOnWindowFocus: true,
     refetchOnMount: true,
     staleTime: 0, // Always fetch fresh data
-    throwOnError: false, // Prevent unhandled promise rejections
   });
 
   // Fallback method: Direct API call without React Query
