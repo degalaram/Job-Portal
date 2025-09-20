@@ -103,10 +103,6 @@ export default function DeletedPosts() {
   const restorePostMutation = useMutation({
     mutationFn: async (postId: string) => {
       const response = await apiRequest('POST', `/api/deleted-posts/${postId}/restore`);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to restore post: ${errorText}`);
-      }
       return response.json();
     },
     onSuccess: (result) => {
@@ -138,10 +134,6 @@ export default function DeletedPosts() {
   const permanentDeleteMutation = useMutation({
     mutationFn: async (postId: string) => {
       const response = await apiRequest('DELETE', `/api/deleted-posts/${postId}/permanent`);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to permanently delete post: ${errorText}`);
-      }
       return response.json();
     },
     onSuccess: () => {
