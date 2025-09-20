@@ -94,9 +94,10 @@ export default function DeletedPosts() {
       return failureCount < 3;
     },
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    staleTime: 30000,
+    staleTime: 0, // Always fetch fresh data
     refetchOnMount: true,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000, // Refetch every 5 seconds to catch new deletions
   });
 
   const restorePostMutation = useMutation({
@@ -112,22 +113,12 @@ export default function DeletedPosts() {
       console.log('Restore success result:', result);
       
       // Invalidate and refetch all related queries immediately
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
       
-      // Force immediate refetch of critical data
-      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      
-      // Small delay then refetch again to ensure data consistency
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      }, 500);
+      // Force immediate refetch
+      refetch();
       
       toast({
         title: 'Post restored successfully',
@@ -154,7 +145,8 @@ export default function DeletedPosts() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts'] });
+      refetch(); // Force immediate refetch
       toast({
         title: 'Post permanently deleted',
         description: 'The post has been permanently removed and cannot be restored.',
@@ -301,14 +293,15 @@ export default function DeletedPosts() {
               console.log('Processing deleted post:', deletedPost);
               
               // Create job object from deleted post data structure
-              const job = deletedPost?.job || {
-                id: deletedPost.originalId,
-                title: deletedPost.title,
-                description: deletedPost.description,
-                location: deletedPost.location,
-                salary: deletedPost.salary,
-                skills: deletedPost.skills || '',
-                closingDate: deletedPost.scheduledDeletion,
+              // The API returns either nested job structure or flat structure
+              const job = deletedPost.job || {
+                id: deletedPost.originalId || deletedPost.jobId,
+                title: deletedPost.title || 'Unknown Job',
+                description: deletedPost.description || 'No description available',
+                location: deletedPost.location || 'Unknown Location',
+                salary: deletedPost.salary || 'Salary not specified',
+                skills: deletedPost.skills || 'No skills listed',
+                closingDate: deletedPost.scheduledDeletion || new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
                 company: deletedPost.company || {
                   name: 'Unknown Company',
                   location: deletedPost.location || 'Unknown Location'
