@@ -191,11 +191,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         experienceLevel: req.query.experienceLevel as string,
         location: req.query.location as string,
         search: req.query.search as string,
-        userId: userId
+        userId: userId || undefined
       };
 
       const jobs = await storage.getJobs(filters);
-      console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'}`);
+      console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'} (after filtering deleted jobs)`);
       res.json(jobs);
     } catch (error) {
       console.error('Error fetching jobs:', error);
@@ -221,12 +221,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/jobs/:jobId/delete', async (req, res) => {
     try {
       const { jobId } = req.params;
-      const userId = req.headers['user-id'] as string;
+      const { userId } = req.body;
 
       console.log(`[DELETE JOB] Request received for job ${jobId} from user ${userId}`);
 
       if (!userId) {
-        console.log('[DELETE JOB] User ID missing from headers');
+        console.log('[DELETE JOB] User ID missing from request body');
         return res.status(400).json({ error: 'User ID required' });
       }
 
@@ -252,6 +252,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ message: 'Job already deleted', success: true });
       }
 
+      // Remove any applications for this job by this user before soft deleting
+      console.log(`[DELETE JOB] Removing applications for job ${jobId} by user ${userId}`);
+      const userApplications = await storage.getUserApplications(userId);
+      const applicationsToRemove = userApplications.filter(app => app.jobId === jobId);
+      
+      for (const app of applicationsToRemove) {
+        await storage.deleteApplication(app.id);
+        console.log(`[DELETE JOB] Removed application ${app.id} for job ${jobId}`);
+      }
+
       // Use the storage's softDeleteJob method
       const deletedPost = await storage.softDeleteJob(jobId, userId);
       
@@ -261,7 +271,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         message: 'Job deleted successfully', 
         success: true,
-        deletedPostId: deletedPost.id 
+        deletedPostId: deletedPost.id,
+        applicationsRemoved: applicationsToRemove.length
       });
 
     } catch (error) {
