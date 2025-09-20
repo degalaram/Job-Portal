@@ -12,8 +12,7 @@ import { Navbar } from '@/components/job-portal/navbar';
 import { Footer } from '@/components/job-portal/footer';
 import { Plus, Building, Globe, Linkedin, MapPin, Trash2, Edit, Eye } from 'lucide-react';
 import type { InsertCompany, Company } from '@shared/schema';
-import { getCompanyLogoFromUrl, getCompanyLogoWithFallback } from '@/utils/skillImages';
-import { SmartLogo } from '@/components/ui/smart-logo';
+import { getCompanyLogoFromUrl } from '@/utils/skillImages';
 
 function AddCompanyDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -30,16 +29,11 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
 
   const createCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      // Auto-analyze and set logo with fallback chain before sending
-      const logoUrl = getCompanyLogoWithFallback({
-        name: data.name,
-        website: data.website || undefined,
-        linkedinUrl: data.linkedinUrl || undefined,
-        logo: data.logo || undefined
-      });
+      // Auto-analyze and set logo before sending
+      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
       const updatedData = {
         ...data,
-        logo: logoUrl
+        logo: logoUrl || data.logo
       };
       
       const response = await apiRequest('POST', '/api/companies', updatedData);
@@ -91,15 +85,10 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Auto-populate logo with fallback chain based on company details
+    // Auto-populate logo based on company details
     const updatedFormData = {
       ...formData,
-      logo: getCompanyLogoWithFallback({
-        name: formData.name,
-        website: formData.website,
-        linkedinUrl: formData.linkedinUrl,
-        logo: formData.logo
-      })
+      logo: getCompanyLogoFromUrl(formData.website, formData.linkedinUrl, formData.name) || formData.logo
     };
 
     createCompanyMutation.mutate(updatedFormData);
@@ -236,74 +225,50 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
 
   const updateCompanyMutation = useMutation({
     mutationFn: async (data: InsertCompany) => {
-      // Auto-analyze and set logo with fallback chain before sending
-      const logoUrl = getCompanyLogoWithFallback({
-        name: data.name,
-        website: data.website || undefined,
-        linkedinUrl: data.linkedinUrl || undefined,
-        logo: data.logo || undefined
-      });
+      // Auto-analyze and set logo before sending - FORCE new logo generation
+      const logoUrl = getCompanyLogoFromUrl(data.website, data.linkedinUrl, data.name);
       const updatedData = {
         ...data,
-        logo: logoUrl
+        logo: logoUrl || '' // Force new logo or empty string, don't use old logo
       };
       
-      console.log('[COMPANY UPDATE] Updating company with data:', updatedData);
-      console.log('[COMPANY UPDATE] Generated logo URL:', logoUrl);
+      console.log('Updating company with data:', updatedData);
+      console.log('Generated logo URL:', logoUrl);
+      const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
       
-      try {
-        const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
-        
-        if (!response.ok) {
-          let errorMessage = 'Failed to update company';
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
-          } catch {
-            const errorText = await response.text();
-            errorMessage = errorText || errorMessage;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        const result = await response.json();
-        console.log('[COMPANY UPDATE] API Response:', result);
-        return result;
-      } catch (error) {
-        console.error('[COMPANY UPDATE] Request Error:', error);
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error('Network error occurred while updating company');
-      }
+      // apiRequest already handles errors and throws them, so if we get here, response is ok
+      return response.json();
     },
     onSuccess: (result) => {
-      console.log('[COMPANY UPDATE] Update successful:', result);
+      console.log('Company update successful:', result);
       
-      // The result should be the updated company directly
-      const updatedCompany = result;
-      
-      // Update the cache immediately with the new data
+      // Immediately update the cache
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
-        const updated = (oldData || []).map((c: Company) => 
-          c.id === company.id ? { ...c, ...updatedCompany } : c
+        return (oldData || []).map((c: Company) => 
+          c.id === company.id ? { ...c, ...result.company || result } : c
         );
-        console.log('[COMPANY UPDATE] Cache updated:', updated);
-        return updated;
       });
-      
-      // Also invalidate to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
       
       toast({
         title: 'Company updated successfully',
-        description: `${updatedCompany.name} has been updated with new details and logo.`,
+        description: `${formData.name} has been updated with logo analysis.`,
       });
       
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
       setOpen(false);
+      
+      // Reset form data to prevent stale data
+      setFormData({
+        name: '',
+        description: '',
+        website: '',
+        linkedinUrl: '',
+        logo: '',
+        location: '',
+      });
     },
     onError: (error: any) => {
-      console.error('[COMPANY UPDATE] Error:', error);
+      console.error('Company update error:', error);
       toast({
         title: 'Failed to update company',
         description: error.message || 'An error occurred while updating the company.',
@@ -326,7 +291,7 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
     // Auto-update logo based on the new company details
     const updatedFormData = {
       ...formData,
-      logo: getCompanyLogoFromUrl(formData.website || undefined, formData.linkedinUrl || undefined, formData.name) || formData.logo
+      logo: getCompanyLogoFromUrl(formData.website, formData.linkedinUrl, formData.name) || formData.logo
     };
 
     updateCompanyMutation.mutate(updatedFormData);
@@ -445,7 +410,7 @@ export default function Companies() {
       return response.json();
     },
     staleTime: 30 * 1000, // 30 seconds
-    gcTime: 60 * 1000, // 1 minute
+    cacheTime: 60 * 1000, // 1 minute
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     retry: 2,
@@ -488,7 +453,18 @@ export default function Companies() {
     },
   });
 
-  // Remove the old getCompanyLogo function since we're using SmartLogo component
+  const getCompanyLogo = (company: Company) => {
+    // Use the centralized utility function that properly analyzes URLs
+    const dynamicLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
+
+    // If we have a dynamic logo that's different from stored logo, prefer the dynamic one
+    if (dynamicLogo && company.logo !== dynamicLogo) {
+      return dynamicLogo;
+    }
+
+    // Otherwise use stored logo or fall back to dynamic logo
+    return company.logo || dynamicLogo;
+  };
 
   const handleDeleteCompany = (companyId: string, companyName: string) => {
     if (window.confirm(`Are you sure you want to move ${companyName} to trash? You can restore it from deleted companies within 7 days.`)) {
@@ -565,12 +541,24 @@ export default function Companies() {
                   {/* Company Logo */}
                   <div className="flex-shrink-0">
                     <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
-                      <SmartLogo
-                        company={company}
-                        className="object-contain rounded"
-                        size={48} // Default size, will adapt based on container
-                        fallbackClassName="w-full h-full bg-blue-100 rounded-lg flex items-center justify-center"
-                      />
+                      {company.logo || getCompanyLogo(company) ? (
+                        <img 
+                          src={company.logo || getCompanyLogo(company)!} 
+                          alt={company.name}
+                          className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            const parent = target.parentElement;
+                            if (parent) {
+                              parent.innerHTML = `<div class="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-xs sm:text-sm md:text-lg font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <span className="text-xs sm:text-sm md:text-lg font-bold text-blue-600">{company.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
