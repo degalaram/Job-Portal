@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,28 +8,8 @@ import { Card, CardContent, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/api';
-
-// Get the API URL for debugging
-const API_URL = (() => {
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL;
-  }
-  if (window.location.hostname.includes('replit.dev') ||
-      window.location.hostname.includes('repl.co') ||
-      window.location.hostname.includes('replit.app') ||
-      window.location.hostname.includes('pike.replit.dev') ||
-      window.location.hostname.includes('projectnow.pages.dev') ||
-      window.location.port === '' ||
-      window.location.protocol === 'https:') {
-    return window.location.origin;
-  }
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return "http://localhost:5000";
-  }
-  return window.location.origin;
-})();
-import {Navbar} from '@/components/job-portal/navbar';
+import { apiRequest } from '@/lib/queryClient';
+import { Navbar } from '@/components/job-portal/navbar';
 import {
   Search,
   MapPin,
@@ -266,14 +247,14 @@ export default function Jobs() {
           navigate('/login');
           return;
         }
-
+        
         const parsedUser = JSON.parse(userString);
         if (!parsedUser || !parsedUser.id) {
           console.log('Invalid user data, redirecting to login');
           navigate('/login');
           return;
         }
-
+        
         setUser(parsedUser);
         setIsAuthChecked(true);
       } catch (error) {
@@ -360,59 +341,48 @@ export default function Jobs() {
 
   const deleteJobMutation = useMutation({
     mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
-      console.log(`[JOB DELETE] Initiating deletion for job ${jobId} by user ${userId}`);
+      if (!userId) {
+        throw new Error('User not logged in');
+      }
 
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, { userId });
+      // Use the correct delete endpoint and send user-id in headers as expected by backend
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[JOB DELETE] API Error:`, errorText);
-        throw new Error(`Failed to delete job: ${errorText}`);
+        let errorMessage = 'Failed to delete job';
+
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          console.error('Server returned non-JSON response:', errorText);
+          errorMessage = 'Server error occurred';
+        }
+
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
-      console.log(`[JOB DELETE] Success:`, result);
-
-      // Set browser flag for deleted posts page to refresh
-      localStorage.setItem('job_deleted', 'true');
-      localStorage.setItem('deleted_job_id', jobId);
-      localStorage.setItem('deleted_user_id', userId);
-      localStorage.setItem('job_deleted_timestamp', Date.now().toString());
-
-      // Trigger custom event for deleted posts page
-      window.dispatchEvent(new CustomEvent('refreshDeletedPosts', {
-        detail: { jobId, userId, timestamp: Date.now() }
-      }));
-
-      return result;
+      return response.json();
     },
-    onSuccess: (result, { userId }) => {
-      console.log('[JOB DELETE] Mutation success, invalidating queries');
-
-      // Invalidate all related queries to ensure immediate UI updates
+    onSuccess: () => {
+      // Update the UI by invalidating queries (tab already switched)
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', userId] });
-      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', userId] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', userId] });
-
-      // Force immediate refetch
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['deleted-posts', userId] });
-        queryClient.refetchQueries({ queryKey: ['jobs'] });
-      }, 100);
-
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
+      
       toast({
-        title: "Job moved to trash",
-        description: "The job has been moved to deleted posts and can be restored within 5 days.",
+        title: 'Job deleted successfully',
+        description: 'The job has been moved to deleted posts and can be restored within 5 days.',
       });
     },
     onError: (error: any) => {
-      console.error("Delete job error:", error);
+      console.error('Delete job error:', error);
       toast({
-        title: "Delete failed",
-        description: error.message || "Failed to delete job",
-        variant: "destructive",
+        title: 'Delete failed',
+        description: error.message || 'Failed to delete job',
+        variant: 'destructive',
       });
     },
   });
@@ -441,7 +411,7 @@ export default function Jobs() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">Failed to connect to the server. Please try again later.</p>
-            <button
+            <button 
               onClick={() => refetch()}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
               data-testid="button-retry"
@@ -480,73 +450,15 @@ export default function Jobs() {
   }) : [];
 
 
-  const handleDeleteJob = async (jobId: string) => {
-    if (!user?.id) {
-      toast({
-        title: 'Authentication required',
-        description: 'Please log in to delete jobs.',
-        variant: 'destructive',
-      });
+  const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    if (!user || !user.id) {
+      navigate('/login');
       return;
     }
-
-    try {
-      console.log(`[JOB DELETE] Starting deletion of job ${jobId} for user ${user.id}`);
-      console.log(`[JOB DELETE] API URL: /api/jobs/${jobId}/soft-delete`);
-
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/soft-delete`, {
-        userId: user.id
-      });
-
-      console.log(`[JOB DELETE] Response status: ${response.status}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[JOB DELETE] API Error Response:`, errorText);
-
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Unknown error' };
-        }
-
-        console.error(`[JOB DELETE] Parsed Error:`, errorData);
-        throw new Error(errorData.error || errorData.message || 'Failed to delete job');
-      }
-
-      const result = await response.json();
-      console.log(`[JOB DELETE] Success result:`, result);
-
-      // Set flags to trigger refresh in deleted posts
-      localStorage.setItem('job_deleted', 'true');
-      localStorage.setItem('deleted_job_id', jobId);
-      localStorage.setItem('deleted_user_id', user.id);
-      localStorage.setItem('job_deleted_timestamp', Date.now().toString());
-
-      // Dispatch custom event
-      window.dispatchEvent(new CustomEvent('refreshDeletedPosts', { 
-        detail: { jobId, userId: user.id, timestamp: Date.now() } 
-      }));
-
-      // Invalidate and refetch queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user.id] });
-
-      console.log(`[JOB DELETE] Queries invalidated, showing success toast`);
-
-      toast({
-        title: 'Job moved to trash',
-        description: `Job "${result.title || jobId}" has been moved to your deleted posts. You can restore it within 5 days.`,
-      });
-
-    } catch (error: any) {
-      console.error('[JOB DELETE] Error:', error);
-      toast({
-        title: 'Failed to delete job',
-        description: error.message || 'An error occurred while deleting the job.',
-        variant: 'destructive',
-      });
+    if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
+      // Perform deletion and let the success handler manage UI updates
+      deleteJobMutation.mutate({ jobId, userId: user.id });
     }
   };
 
@@ -601,7 +513,7 @@ export default function Jobs() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
@@ -660,8 +572,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('all')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'all'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'all' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-all-jobs"
@@ -671,8 +583,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('fresher')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'fresher'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'fresher' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-fresher-jobs"
@@ -682,8 +594,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('experienced')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'experienced'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'experienced' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-experienced-jobs"
@@ -693,8 +605,8 @@ export default function Jobs() {
               <button
                 onClick={() => setActiveTab('expired')}
                 className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'expired'
-                    ? 'bg-primary text-primary-foreground shadow'
+                  activeTab === 'expired' 
+                    ? 'bg-primary text-primary-foreground shadow' 
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 data-testid="tab-expired-jobs"
@@ -747,8 +659,8 @@ export default function Jobs() {
                             {/* Left Company Logo */}
                             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
                               {job.company.logo || getCompanyLogo(job.company) ? (
-                                <img
-                                  src={job.company.logo || getCompanyLogo(job.company)!}
+                                <img 
+                                  src={job.company.logo || getCompanyLogo(job.company)!} 
                                   alt={job.company.name}
                                   className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
                                   onError={(e) => {
@@ -785,8 +697,8 @@ export default function Jobs() {
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
                             {job.company.logo || getCompanyLogo(job.company) ? (
-                              <img
-                                src={job.company.logo || getCompanyLogo(job.company)!}
+                              <img 
+                                src={job.company.logo || getCompanyLogo(job.company)!} 
                                 alt={job.company.name}
                                 className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
                                 onError={(e) => {
