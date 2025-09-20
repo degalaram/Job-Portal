@@ -2220,6 +2220,13 @@ export class DbStorage implements IStorage {
   }
 }
 
-// Use MemStorage for all environments to ensure deleted posts functionality works
+// Force MemStorage for all environments to ensure deleted posts functionality works
 // Database storage is incomplete and causes issues with deleted posts
-export const storage = new MemStorage();
+const createStorage = () => {
+  console.log('🔧 Creating storage instance - forcing MemStorage for all environments');
+  const memStorage = new MemStorage();
+  console.log('✅ MemStorage instance created successfully');
+  return memStorage;
+};
+
+export const storage = createStorage();
