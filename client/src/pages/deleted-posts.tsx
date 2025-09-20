@@ -163,13 +163,23 @@ export default function DeletedPosts() {
 
   // Update state when React Query data changes
   useEffect(() => {
-    if (deletedPosts && Array.isArray(deletedPosts) && deletedPosts.length > 0) {
+    console.log('[DELETED POSTS] useEffect triggered - deletedPosts:', deletedPosts);
+    console.log('[DELETED POSTS] useEffect triggered - isLoading:', isLoading);
+    console.log('[DELETED POSTS] useEffect triggered - deletedPosts type:', typeof deletedPosts);
+    console.log('[DELETED POSTS] useEffect triggered - deletedPosts isArray:', Array.isArray(deletedPosts));
+    
+    if (deletedPosts && Array.isArray(deletedPosts)) {
       console.log('[DELETED POSTS] Updating state from React Query:', deletedPosts.length);
       setDeletedPostsState(deletedPosts);
       setIsLoadingState(false);
       setErrorState(null);
-    } else if (!isLoading && deletedPosts && deletedPosts.length === 0) {
-      console.log('[DELETED POSTS] React Query returned empty array, trying fallback');
+    } else if (!isLoading && Array.isArray(deletedPosts) && deletedPosts.length === 0) {
+      console.log('[DELETED POSTS] React Query returned empty array, setting empty state');
+      setDeletedPostsState([]);
+      setIsLoadingState(false);
+      setErrorState(null);
+    } else if (!isLoading) {
+      console.log('[DELETED POSTS] No valid data from React Query, trying fallback');
       fetchDeletedPostsDirectly();
     }
   }, [deletedPosts, isLoading, fetchDeletedPostsDirectly]);
@@ -421,7 +431,12 @@ export default function DeletedPosts() {
             <div className="bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-800">
               <div className="text-center">
                 <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                  {Math.max(deletedPosts?.length || 0, deletedPostsState?.length || 0)}
+                  {(() => {
+                    const count = (Array.isArray(deletedPosts) && deletedPosts.length >= 0) ? deletedPosts.length : 
+                                 (Array.isArray(deletedPostsState) && deletedPostsState.length >= 0) ? deletedPostsState.length : 0;
+                    console.log('[DELETED POSTS] Header count:', count);
+                    return count;
+                  })()}
                 </div>
                 <div className="text-sm text-red-600 dark:text-red-400 font-medium">
                   Deleted Posts
@@ -447,11 +462,16 @@ export default function DeletedPosts() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
             <h4 className="font-semibold text-yellow-800">Debug Information:</h4>
             <p className="text-sm text-yellow-700">
-              React Query data: {deletedPosts?.length || 0} posts | 
-              State data: {deletedPostsState?.length || 0} posts | 
+              React Query data: {Array.isArray(deletedPosts) ? deletedPosts.length : 'Not Array'} posts ({typeof deletedPosts}) | 
+              State data: {Array.isArray(deletedPostsState) ? deletedPostsState.length : 'Not Array'} posts ({typeof deletedPostsState}) | 
               Loading: {isLoading || isLoadingState ? 'Yes' : 'No'} | 
               Error: {error || errorState ? 'Yes' : 'No'}
             </p>
+            {Array.isArray(deletedPosts) && deletedPosts.length > 0 && (
+              <p className="text-xs text-yellow-600 mt-1">
+                First post: {deletedPosts[0]?.title || 'No Title'} - {deletedPosts[0]?.company?.name || 'No Company'}
+              </p>
+            )}
             <button 
               onClick={() => {
                 console.log('[DELETED POSTS] Manual refetch triggered');
@@ -464,12 +484,17 @@ export default function DeletedPosts() {
             </button>
           </div>
 
-          {/* Use multiple data sources - prioritize state, then React Query */}
+          {/* Use multiple data sources - prioritize React Query, then state */}
           {(() => {
-            const displayData = deletedPostsState?.length > 0 ? deletedPostsState : (deletedPosts || []);
-            console.log('[DELETED POSTS] Display data chosen:', displayData?.length || 0, 'posts');
+            // Prioritize React Query data if it exists and is an array
+            const displayData = (Array.isArray(deletedPosts) && deletedPosts.length >= 0) ? deletedPosts : 
+                               (Array.isArray(deletedPostsState) && deletedPostsState.length >= 0) ? deletedPostsState : [];
             
-            return (!displayData || displayData.length === 0) ? (
+            console.log('[DELETED POSTS] Display data chosen:', displayData?.length || 0, 'posts');
+            console.log('[DELETED POSTS] Display data source:', Array.isArray(deletedPosts) && deletedPosts.length >= 0 ? 'React Query' : 'State');
+            console.log('[DELETED POSTS] Display data content:', displayData);
+            
+            return (!Array.isArray(displayData) || displayData.length === 0) ? (
               <div className="w-full max-w-4xl mx-auto">
                 <Card className="w-full">
                   <CardContent className="p-8 sm:p-12 text-center">
