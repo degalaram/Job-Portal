@@ -269,7 +269,9 @@ export default function Jobs() {
   const { data: allJobs = [], isLoading, error: jobsError, refetch } = useQuery({
     queryKey: ['jobs', user?.id],
     queryFn: async () => {
-      const response = await apiRequest('GET', '/api/jobs');
+      const response = await apiRequest('GET', '/api/jobs', null, {
+        'user-id': user?.id || ''
+      });
       return response.json();
     },
     staleTime: 0, // Always consider data stale for immediate updates
@@ -370,16 +372,19 @@ export default function Jobs() {
       return result;
     },
     onSuccess: (data, variables) => {
-      // Immediately update local state to remove applied status for deleted job
+      // Immediately remove the job from appliedJobs state
       setAppliedJobs(prev => prev.filter(jobId => jobId !== variables.jobId));
       
-      // Force immediate UI update by invalidating and refetching all relevant queries
+      // Immediately update the jobs query cache to remove the deleted job
+      queryClient.setQueryData(['jobs', user?.id], (oldData: any) => {
+        if (!Array.isArray(oldData)) return oldData;
+        return oldData.filter((job: any) => job.id !== variables.jobId);
+      });
+      
+      // Force invalidate and refetch all relevant queries for consistency
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      
-      // Force immediate refetch to update the jobs list
-      refetch();
       
       toast({
         title: 'Job deleted successfully',
