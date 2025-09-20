@@ -376,20 +376,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get deleted posts for a user
   app.get("/api/deleted-posts/user/:userId", async (req, res) => {
+    const { userId } = req.params;
+    console.log(`API: Getting deleted posts for user ${userId}`);
+
     try {
-      const { userId } = req.params;
-
-      if (!userId) {
-        return res.status(400).json({ error: 'User ID is required' });
-      }
-
-      console.log(`Fetching deleted posts for user: ${userId}`);
-
-      // Get all deleted posts for the user
       const deletedPosts = await storage.getUserDeletedPosts(userId);
-      console.log(`Found ${deletedPosts.length} deleted posts for user ${userId}`);
+      console.log(`API: Raw deleted posts from storage:`, deletedPosts);
 
-      // Transform the data to match the expected format
+      // Transform the data structure to match what the frontend expects
       const transformedDeletedPosts = deletedPosts.map(deletedPost => {
         // If it already has a job property, use it as is
         if (deletedPost.job) {
