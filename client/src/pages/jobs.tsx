@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -247,14 +246,14 @@ export default function Jobs() {
           navigate('/login');
           return;
         }
-        
+
         const parsedUser = JSON.parse(userString);
         if (!parsedUser || !parsedUser.id) {
           console.log('Invalid user data, redirecting to login');
           navigate('/login');
           return;
         }
-        
+
         setUser(parsedUser);
         setIsAuthChecked(true);
       } catch (error) {
@@ -340,52 +339,51 @@ export default function Jobs() {
   });
 
   const deleteJobMutation = useMutation({
-    mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
-      if (!userId) {
-        throw new Error('User not logged in');
+    mutationFn: async (jobId: string) => {
+      if (!user?.id) {
+        throw new Error('User not authenticated');
       }
 
-      // Use the correct delete endpoint and send user-id in headers as expected by backend
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, undefined, { 'user-id': userId });
+      console.log(`Attempting to delete job ${jobId} for user ${user.id}`);
+
+      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, {}, {
+        'user-id': user.id
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        let errorMessage = 'Failed to delete job';
-
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          console.error('Server returned non-JSON response:', errorText);
-          errorMessage = 'Server error occurred';
-        }
-
-        throw new Error(errorMessage);
+        console.error(`Delete API error: ${response.status} - ${errorText}`);
+        throw new Error(`Failed to delete post: ${errorText}`);
       }
 
-      return response.json();
+      const result = await response.json();
+      console.log('Delete post result:', result);
+      return result;
     },
-    onSuccess: () => {
-      // Update the UI by invalidating queries (tab already switched)
+    onSuccess: (result) => {
+      // Invalidate all relevant queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
-      
+
+      // Force refetch to ensure immediate UI update
+      queryClient.refetchQueries({ queryKey: ['jobs'] });
+
       toast({
-        title: 'Job deleted successfully',
-        description: 'The job has been moved to deleted posts and can be restored within 5 days.',
+        title: 'Post deleted successfully',
+        description: 'The job post has been moved to deleted posts and can be restored within 5 days.',
       });
     },
     onError: (error: any) => {
-      console.error('Delete job error:', error);
+      console.error('Delete post error:', error);
       toast({
         title: 'Delete failed',
-        description: error.message || 'Failed to delete job',
+        description: error.message || 'Failed to delete post',
         variant: 'destructive',
       });
     },
   });
+
 
   // Show loading while checking authentication
   if (!isAuthChecked) {
@@ -450,16 +448,18 @@ export default function Jobs() {
   }) : [];
 
 
-  const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
-    e.stopPropagation();
-    if (!user || !user.id) {
-      navigate('/login');
+  const handleDeletePost = (jobId: string) => {
+    if (!user?.id) {
+      toast({
+        title: 'Authentication required',
+        description: 'Please log in to delete posts',
+        variant: 'destructive',
+      });
       return;
     }
-    if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
-      // Perform deletion and let the success handler manage UI updates
-      deleteJobMutation.mutate({ jobId, userId: user.id });
-    }
+
+    console.log(`User ${user.id} attempting to delete job ${jobId}`);
+    deleteJobMutation.mutate(jobId);
   };
 
   const handleJobClick = (jobId: string) => {
@@ -828,7 +828,7 @@ export default function Jobs() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={(e) => handleDeleteJob(e, job.id)}
+                                  onClick={(e) => handleDeletePost(job.id)}
                                   className="text-xs h-6 sm:h-7 px-1 sm:px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
                                   data-testid={`delete-job-${job.id}`}
                                   title="Delete Job"
