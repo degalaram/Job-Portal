@@ -12,7 +12,7 @@ const getApiBaseUrl = () => {
   if (window.location.hostname.includes('replit.dev') || 
       window.location.hostname.includes('repl.co') || 
       window.location.hostname.includes('replit.app')) {
-    const replitUrl = window.location.origin;
+    const replitUrl = `${window.location.protocol}//${window.location.hostname}`;
     console.log('Using Replit URL:', replitUrl);
     return replitUrl;
   }
@@ -63,30 +63,14 @@ export async function apiRequest(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      // Safe error handling - clone response to avoid consuming the stream
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      
+      // Safe error handling - try JSON first, fallback to text
       try {
-        // Clone the response before trying to read it
-        const responseClone = response.clone();
-        const contentType = response.headers.get('content-type');
-        
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await responseClone.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } else {
-          const errorText = await responseClone.text();
-          if (errorText && errorText.length > 0) {
-            errorMessage = errorText;
-          }
-        }
-      } catch (parseError) {
-        console.error('Could not parse error response:', parseError);
-        // Use the default error message with status
-        errorMessage = `Request failed with status: ${response.status}`;
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      } catch {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
       }
-      
-      throw new Error(errorMessage);
     }
 
     return response;
