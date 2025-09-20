@@ -1153,92 +1153,108 @@ export class MemStorage implements IStorage {
   }
 
   async getUserDeletedPosts(userId: string): Promise<any[]> {
-    console.log(`[STORAGE] Getting deleted posts for user ${userId} at ${new Date().toISOString()}`);
+    console.log(`[STORAGE] Getting deleted posts for user: ${userId}`);
 
-    // Ensure deletedPosts is initialized
-    if (!this.deletedPosts) {
-      console.log(`[STORAGE] Initializing deletedPosts Map for user ${userId}`);
-      this.deletedPosts = new Map<string, any>();
-    }
+    try {
+      // Filter deleted posts by user ID
+      const userDeletedPosts = Array.from(this.deletedPosts.values()).filter(post => post.userId === userId);
 
-    console.log(`[STORAGE] Total deleted posts in storage: ${this.deletedPosts.size}`);
+      console.log(`[STORAGE] Found ${userDeletedPosts.length} raw deleted posts for user ${userId}`);
 
-    const allDeletedPosts = Array.from(this.deletedPosts.values());
-    console.log(`[STORAGE] All deleted posts:`, allDeletedPosts.map(p => ({ id: p.id, userId: p.userId, jobId: p.jobId })));
+      if (userDeletedPosts.length === 0) {
+        console.log(`[STORAGE] No deleted posts found for user ${userId}`);
+        return [];
+      }
 
-    const userDeletedPosts = allDeletedPosts.filter(post => {
-      const matches = post.userId === userId;
-      console.log(`[STORAGE] Post ${post.id}: userId=${post.userId}, matches=${matches}`);
-      return matches;
-    });
+      // Enrich deleted posts with complete job and company data
+      const enrichedDeletedPosts = userDeletedPosts.map(post => {
+        console.log(`[STORAGE] Processing deleted post ${post.id} for user ${post.userId}`);
 
-    console.log(`[STORAGE] Found ${userDeletedPosts.length} deleted posts for user ${userId}`);
+        // Create a complete post object with all job data embedded
+        const enrichedPost = {
+          id: post.id,
+          userId: post.userId,
+          jobId: post.jobId || post.originalId,
+          originalId: post.originalId || post.jobId,
+          type: post.type || 'job',
+          deletedAt: post.deletedAt,
+          // Use data from the deleted post itself (stored during deletion)
+          title: post.title || 'Unknown Job',
+          description: post.description || 'No description available',
+          location: post.location || 'Location not specified',
+          salary: post.salary || 'Salary not specified',
+          skills: post.skills || '',
+          requirements: post.requirements || '',
+          qualifications: post.qualifications || '',
+          experienceLevel: post.experienceLevel || 'fresher',
+          experienceMin: post.experienceMin || 0,
+          experienceMax: post.experienceMax || 1,
+          jobType: post.jobType || 'full-time',
+          applyUrl: post.applyUrl || '',
+          closingDate: post.closingDate || new Date(),
+          batchEligible: post.batchEligible || '',
+          isActive: post.isActive !== undefined ? post.isActive : true,
+          company: post.company || {
+            id: 'unknown',
+            name: 'Unknown Company',
+            description: '',
+            website: '',
+            linkedinUrl: '',
+            logo: '',
+            location: post.location || 'Unknown Location',
+            industry: '',
+            size: 'medium',
+            founded: '',
+            createdAt: new Date()
+          }
+        };
 
-    if (userDeletedPosts.length === 0) {
-      console.log(`[STORAGE] No deleted posts found for user ${userId}, returning empty array`);
+        // Try to get original job data if available
+        if (post.jobId || post.originalId) {
+          const jobId = post.jobId || post.originalId;
+          const job = this.jobs.get(jobId);
+          if (job) {
+            // Update with more complete job data if available
+            enrichedPost.title = job.title || enrichedPost.title;
+            enrichedPost.description = job.description || enrichedPost.description;
+            enrichedPost.location = job.location || enrichedPost.location;
+            enrichedPost.salary = job.salary || enrichedPost.salary;
+            enrichedPost.skills = job.skills || enrichedPost.skills;
+            enrichedPost.job = job;
+            console.log(`[STORAGE] Enhanced post ${post.id} with original job data: ${job.title}`);
+
+            // Get company data
+            if (job.companyId) {
+              const company = this.companies.get(job.companyId);
+              if (company) {
+                enrichedPost.company = company;
+                console.log(`[STORAGE] Added company data: ${company.name}`);
+              }
+            }
+          }
+        }
+
+        return enrichedPost;
+      });
+
+      console.log(`[STORAGE] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
+
+      // Debug log each post
+      enrichedDeletedPosts.forEach((post, index) => {
+        console.log(`[STORAGE] Post ${index + 1}:`, {
+          id: post.id,
+          title: post.title,
+          company: post.company?.name,
+          deletedAt: post.deletedAt,
+          hasJobData: !!post.job
+        });
+      });
+
+      return enrichedDeletedPosts;
+    } catch (error) {
+      console.error(`[STORAGE] Error getting deleted posts for user ${userId}:`, error);
       return [];
     }
-
-    // Return the deleted posts with complete data (they should already have job and company data from soft delete)
-    const enrichedDeletedPosts = userDeletedPosts.map(post => {
-      console.log(`[STORAGE] Processing deleted post ${post.id}`);
-
-      // The post should already have complete job and company data from the soft delete process
-      if (post.job && post.company) {
-        console.log(`[STORAGE] Post ${post.id} already has complete data`);
-        return post;
-      }
-
-      // If missing job data, reconstruct it from the stored fields
-      if (!post.job && post.jobId) {
-        console.log(`[STORAGE] Reconstructing job data for post ${post.id}`);
-        post.job = {
-          id: post.jobId,
-          companyId: post.company?.id || '',
-          title: post.title,
-          description: post.description,
-          requirements: post.requirements,
-          qualifications: post.qualifications,
-          skills: post.skills,
-          experienceLevel: post.experienceLevel,
-          experienceMin: post.experienceMin,
-          experienceMax: post.experienceMax,
-          location: post.location,
-          jobType: post.jobType,
-          salary: post.salary,
-          applyUrl: post.applyUrl,
-          closingDate: post.closingDate,
-          batchEligible: post.batchEligible,
-          isActive: post.isActive,
-          createdAt: new Date(),
-          company: post.company
-        };
-      }
-
-      // If missing company data but have job data with companyId
-      if (post.job && !post.job.company && post.job.companyId) {
-        const company = this.companies.get(post.job.companyId);
-        if (company) {
-          post.job.company = company;
-          post.company = company;
-          console.log(`[STORAGE] Added company data to post ${post.id}`);
-        }
-      }
-
-      // Ensure company data is available at the top level too
-      if (!post.company && post.job?.company) {
-        post.company = post.job.company;
-      }
-
-      return post;
-    });
-
-    console.log(`[STORAGE] Returning ${enrichedDeletedPosts.length} enriched deleted posts for user ${userId}`);
-    enrichedDeletedPosts.forEach(post => {
-      console.log(`[STORAGE] Post ${post.id}: title="${post.title}", company="${post.company?.name}", hasJobData=${!!post.job}`);
-    });
-
-    return enrichedDeletedPosts;
   }
 
   async softDeleteJob(jobId: string, userId: string): Promise<any> {
@@ -1260,24 +1276,34 @@ export class MemStorage implements IStorage {
 
       if (existingDeletedPost) {
         console.log(`[JOB DELETE] Already deleted, returning existing`);
-        return {
-          ...existingDeletedPost,
-          job: jobWithCompany,
-          title: jobWithCompany.title,
-          company: jobWithCompany.company,
-          scheduledDeletion: new Date(existingDeletedPost.deletedAt!.getTime() + 5 * 24 * 60 * 60 * 1000),
-          originalType: 'job'
-        };
+        return existingDeletedPost;
       }
 
-      // Create deleted post entry
+      // Create application if user hasn't applied yet (ensures there's something to delete)
+      try {
+        const userApplications = await this.getUserApplications(userId);
+        const existingApplication = userApplications.find(app => app.job.id === jobId);
+
+        if (!existingApplication) {
+          console.log(`[JOB DELETE] Creating application for user ${userId} and job ${jobId}`);
+          await this.createApplication({
+            userId: userId,
+            jobId: jobId,
+            status: 'applied'
+          });
+        }
+      } catch (appError) {
+        console.log(`[JOB DELETE] Application creation warning: ${appError}`);
+      }
+
+      // Create deleted post entry with all job data embedded
       const deletedPostId = randomUUID();
       const deletedPost = {
         id: deletedPostId,
         userId,
         jobId,
         originalId: jobId,
-        type: 'job',
+        type: 'job' as const,
         title: jobWithCompany.title,
         description: jobWithCompany.description,
         requirements: jobWithCompany.requirements,
@@ -1306,16 +1332,17 @@ export class MemStorage implements IStorage {
           founded: jobWithCompany.company.founded,
           createdAt: jobWithCompany.company.createdAt
         },
+        job: jobWithCompany,
         deletedAt: new Date(),
-        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-        originalType: 'job'
+        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
       };
 
+      // Store the deleted post
       this.deletedPosts.set(deletedPostId, deletedPost);
 
-      console.log(`[JOB DELETE] Created deleted post entry successfully`);
+      console.log(`[JOB DELETE] Created deleted post entry successfully with ID: ${deletedPostId}`);
+      console.log(`[JOB DELETE] Deleted post contains: title="${deletedPost.title}", company="${deletedPost.company.name}"`);
 
-      // Return enriched deleted post with complete data (like companies)
       return deletedPost;
     } catch (error) {
       console.error(`[JOB DELETE] Error:`, error);
@@ -2028,10 +2055,11 @@ export class DbStorage implements IStorage {
   }
 
 
-  async deletePostFromDeleted(id: string): Promise<void> {
+  deletePostFromDeleted(id: string): Promise<void> {
     // In a real DB, you'd delete from 'deleted_posts'
     console.log(`Deleting post with ID ${id} from deleted posts.`);
     // Example: await db.delete(schema.deletedPosts).where(eq(schema.deletedPosts.id, id));
+    return Promise.resolve(undefined);
   }
 
   async softDeleteJob(jobId: string, userId: string): Promise<any> {
