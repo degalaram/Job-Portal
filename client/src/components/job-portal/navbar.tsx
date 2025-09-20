@@ -211,12 +211,7 @@ export function Navbar() {
               >
                 My Applications
               </a>
-              <a
-                href="/deleted-posts"
-                className="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                Deleted Posts
-              </a>
+              
             </div>
           </div>
         )}
