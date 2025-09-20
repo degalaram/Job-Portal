@@ -33,9 +33,9 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
       // Auto-analyze and set logo with fallback chain before sending
       const logoUrl = getCompanyLogoWithFallback({
         name: data.name,
-        website: data.website,
-        linkedinUrl: data.linkedinUrl,
-        logo: data.logo
+        website: data.website || undefined,
+        linkedinUrl: data.linkedinUrl || undefined,
+        logo: data.logo || undefined
       });
       const updatedData = {
         ...data,
@@ -239,9 +239,9 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
       // Auto-analyze and set logo with fallback chain before sending
       const logoUrl = getCompanyLogoWithFallback({
         name: data.name,
-        website: data.website,
-        linkedinUrl: data.linkedinUrl,
-        logo: data.logo
+        website: data.website || undefined,
+        linkedinUrl: data.linkedinUrl || undefined,
+        logo: data.logo || undefined
       });
       const updatedData = {
         ...data,
@@ -326,7 +326,7 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
     // Auto-update logo based on the new company details
     const updatedFormData = {
       ...formData,
-      logo: getCompanyLogoFromUrl(formData.website, formData.linkedinUrl, formData.name) || formData.logo
+      logo: getCompanyLogoFromUrl(formData.website || undefined, formData.linkedinUrl || undefined, formData.name) || formData.logo
     };
 
     updateCompanyMutation.mutate(updatedFormData);
@@ -445,7 +445,7 @@ export default function Companies() {
       return response.json();
     },
     staleTime: 30 * 1000, // 30 seconds
-    cacheTime: 60 * 1000, // 1 minute
+    gcTime: 60 * 1000, // 1 minute
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     retry: 2,
