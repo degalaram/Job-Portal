@@ -16,21 +16,12 @@ import { marked } from 'marked';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { nanoid } from 'nanoid';
-import { criticalSystemProtection, systemIntegrityCheck } from './security-middleware';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Apply critical security middleware
-  app.use(criticalSystemProtection);
-  
-  // Verify system integrity on startup
-  if (!systemIntegrityCheck()) {
-    throw new Error('System integrity check failed - admin functionality disabled');
-  }
-  
   // CORS is already configured in server/index.ts - no need to duplicate here
 
   // Auth routes
@@ -226,84 +217,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Soft delete a job (move to deleted posts - works exactly like company deletion)
-  app.post('/api/jobs/:jobId/soft-delete', async (req, res) => {
+  // Soft delete a job (hide from user's view)
+  app.post('/api/jobs/:jobId/delete', async (req, res) => {
     try {
       const { jobId } = req.params;
-      const userId = req.body?.userId || req.headers['user-id'] as string;
+      const userId = req.headers['user-id'] as string;
 
-      console.log(`[JOB DELETE] Moving job ${jobId} to trash for user ${userId}`);
-
-      // Validate inputs
-      if (!userId || userId.trim() === '') {
-        return res.status(400).json({ 
-          error: 'User ID is required',
-          success: false
-        });
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID required' });
       }
 
-      if (!jobId || jobId.trim() === '') {
-        return res.status(400).json({ 
-          error: 'Job ID is required',
-          success: false
-        });
+      console.log(`Attempting to soft delete job ${jobId} for user ${userId}`);
+
+      // Find the job
+      const job = await storage.getJobById(jobId); // Use storage.getJobById to fetch job details
+      if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
       }
 
-      // Check if job exists
-      const existingJob = await storage.getJob(jobId);
-      if (!existingJob) {
-        console.log(`[JOB DELETE] Job not found: ${jobId}`);
-        return res.status(404).json({
-          error: 'Job not found',
-          success: false
-        });
+      // Check if already deleted by this user - use proper Map access for MemStorage
+      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
+      const existingDeletedPost = userDeletedPosts.find(dp => dp.originalId === jobId && dp.type === 'job');
+      if (existingDeletedPost) {
+        return res.json({ message: 'Job already deleted' });
       }
 
-      // Create application if user hasn't applied yet (ensures there's something to delete)
-      try {
-        const userApplications = await storage.getUserApplications(userId);
-        const existingApplication = userApplications.find(app => app.job.id === jobId);
-        
-        if (!existingApplication) {
-          console.log(`[JOB DELETE] Creating application for user ${userId} and job ${jobId}`);
-          await storage.createApplication({
-            userId: userId,
-            jobId: jobId,
-            status: 'applied'
-          });
-        }
-      } catch (appError) {
-        console.log(`[JOB DELETE] Application creation warning: ${appError}`);
+      // Create application if not exists (to track the delete action)
+      const existingApplication = await storage.getUserApplications(userId).then(apps => 
+        apps.find(app => app.job.id === jobId)
+      );
+
+      let applicationId = null;
+      if (!existingApplication) {
+        const newApplication = {
+          id: nanoid(),
+          userId,
+          jobId,
+          status: 'applied' as const,
+          appliedAt: new Date().toISOString(),
+          coverLetter: 'Applied before deletion'
+        };
+        await storage.createApplication(newApplication);
+        applicationId = newApplication.id;
+        console.log(`Created application for user ${userId} and job ${jobId}`);
+      } else {
+        applicationId = existingApplication.id;
       }
 
-      // Perform soft delete using the same pattern as companies
-      const deletedPost = await storage.softDeleteJob(jobId, userId);
-      
-      console.log(`[JOB DELETE] Job successfully moved to trash`);
+      // Add to deleted posts
+      const deletedPost = {
+        id: nanoid(),
+        userId,
+        originalId: jobId,
+        jobId: jobId,
+        applicationId: applicationId,
+        type: 'job' as const,
+        title: job.title,
+        description: job.description,
+        company: { name: 'Unknown Company' }, // Will be populated when company data is available
+        location: job.location,
+        salary: job.salary,
+        experience: job.experienceLevel,
+        skills: job.skills,
+        deletedAt: new Date().toISOString(),
+        scheduledDeletion: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString() // 5 days from now
+      };
 
-      res.json({ 
-        message: 'Job moved to trash successfully',
-        deletedPost: deletedPost,
-        success: true
-      });
-        
+      await storage.addDeletedPost(deletedPost);
+      console.log(`Job ${jobId} soft deleted for user ${userId}`);
+      console.log(`Successfully created deleted post: ${deletedPost.id}`);
+
+      res.json({ message: 'Job deleted successfully' });
     } catch (error) {
-      console.error('[JOB DELETE] Error:', error);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
-      let statusCode = 500;
-      if (errorMessage.includes('not found')) {
-        statusCode = 404;
-      } else if (errorMessage.includes('already deleted')) {
-        statusCode = 409;
-      }
-      
-      res.status(statusCode).json({ 
-        error: 'Failed to move job to trash', 
-        message: errorMessage,
-        success: false
-      });
+      console.error('Error deleting job:', error);
+      res.status(500).json({ error: 'Failed to delete job' });
     }
   });
 
@@ -387,249 +374,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Debug endpoint for deleted posts
-  app.get("/api/debug/deleted-posts/:userId", async (req, res) => {
-    const { userId } = req.params;
-    console.log(`[DEBUG] Getting debug info for deleted posts for user ${userId}`);
-
-    try {
-      // Get all deleted posts from storage
-      const allDeletedPosts = await storage.getDeletedPosts();
-      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
-      
-      const debugInfo = {
-        userId: userId,
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        isDeployment: !!process.env.REPLIT_DEPLOYMENT,
-        storageType: storage.constructor.name,
-        allDeletedPostsCount: allDeletedPosts.length,
-        userDeletedPostsCount: userDeletedPosts.length,
-        allDeletedPosts: allDeletedPosts.map(post => ({
-          id: post.id,
-          userId: post.userId,
-          jobId: post.jobId,
-          title: post.title,
-          deletedAt: post.deletedAt
-        })),
-        userDeletedPosts: userDeletedPosts.map(post => ({
-          id: post.id,
-          userId: post.userId,
-          jobId: post.jobId,
-          title: post.title,
-          deletedAt: post.deletedAt,
-          hasJobData: !!post.job,
-          hasCompanyData: !!post.company
-        })),
-        // Add storage internals for debugging in deployment
-        storageInternals: {
-          deletedPostsMapSize: storage.constructor.name === 'MemStorage' ? (storage as any).deletedPosts?.size || 0 : 'N/A',
-          companiesMapSize: storage.constructor.name === 'MemStorage' ? (storage as any).companies?.size || 0 : 'N/A',
-          jobsMapSize: storage.constructor.name === 'MemStorage' ? (storage as any).jobs?.size || 0 : 'N/A'
-        }
-      };
-      
-      console.log(`[DEBUG] Debug info:`, debugInfo);
-      res.json(debugInfo);
-    } catch (error) {
-      console.error(`[DEBUG] Error getting debug info:`, error);
-      res.status(500).json({ error: 'Debug failed', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
   // Get deleted posts for a user
   app.get("/api/deleted-posts/user/:userId", async (req, res) => {
     const { userId } = req.params;
-    console.log(`[DELETED POSTS API] ${new Date().toISOString()} - Getting deleted posts for user ${userId}`);
-
-    // Set proper headers first
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, user-id');
+    console.log(`API: Getting deleted posts for user ${userId}`);
 
     try {
-      if (!userId || userId.trim() === '') {
-        console.log('[DELETED POSTS API] Invalid user ID provided');
-        return res.status(400).json({ error: 'Invalid user ID' });
-      }
+      const deletedPosts = await storage.getUserDeletedPosts(userId);
+      console.log(`API: Raw deleted posts from storage:`, deletedPosts);
 
-      console.log(`[DELETED POSTS API] Fetching from storage for user: ${userId}`);
-      console.log(`[DELETED POSTS API] Storage type: ${storage.constructor.name}`);
-      console.log(`[DELETED POSTS API] Environment: ${process.env.NODE_ENV}, Deployment: ${process.env.REPLIT_DEPLOYMENT}`);
-      
-      // Always try to get deleted posts from storage, with enhanced error handling
-      let deletedPosts = [];
-      try {
-        // Use the storage interface consistently
-        deletedPosts = await storage.getUserDeletedPosts(userId);
-        console.log(`[DELETED POSTS API] Storage returned: ${deletedPosts.length} posts`);
-        
-        // Validate the returned data
-        if (!Array.isArray(deletedPosts)) {
-          console.log(`[DELETED POSTS API] Storage returned non-array, converting: ${typeof deletedPosts}`);
-          deletedPosts = [];
+      // Transform the data structure to match what the frontend expects
+      const transformedDeletedPosts = deletedPosts.map(deletedPost => {
+        // If it already has a job property, use it as is
+        if (deletedPost.job) {
+          return deletedPost;
         }
-      } catch (storageError) {
-        console.error(`[DELETED POSTS API] Storage error:`, storageError);
-        
-        // For deployment, provide fallback sample data
-        if (process.env.NODE_ENV === 'production' || process.env.REPLIT_DEPLOYMENT) {
-          console.log(`[DELETED POSTS API] Creating fallback sample data for deployment`);
-          deletedPosts = [
-            {
-              id: `fallback-deleted-${userId}-1`,
-              userId: userId,
-              jobId: 'fallback-job-1',
-              originalId: 'fallback-job-1',
-              type: 'job',
-              title: 'Fallback Sample Deleted Job',
-              description: 'This is a fallback sample deleted job post created when storage fails in deployment.',
-              requirements: 'Fallback sample requirements',
-              qualifications: 'Fallback sample qualifications',
-              skills: 'React, Node.js, JavaScript, Python',
-              experienceLevel: 'fresher',
-              experienceMin: 0,
-              experienceMax: 2,
-              location: 'Sample Location',
-              jobType: 'full-time',
-              salary: '₹5-7 LPA',
-              applyUrl: '',
-              closingDate: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
-              batchEligible: '2024',
-              isActive: true,
-              company: {
-                id: 'fallback-company',
-                name: 'Fallback Sample Company',
-                description: 'A fallback sample company for deployment testing',
-                website: 'https://example-fallback.com',
-                linkedinUrl: '',
-                logo: '',
-                location: 'Sample Location',
-                industry: 'Technology',
-                size: 'medium',
-                founded: '2021',
-                createdAt: new Date()
-              },
-              deletedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-              scheduledDeletion: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000),
-              originalType: 'job'
-            }
-          ];
-        } else {
-          deletedPosts = [];
-        }
-      }
 
-      // Create sample deleted posts for deployment testing if none exist
-      if (deletedPosts.length === 0 && process.env.NODE_ENV === 'production') {
-        console.log('[DELETED POSTS API] No deleted posts found in production, creating sample data');
-        deletedPosts = [
-          {
-            id: 'sample-deleted-1',
-            userId: userId,
-            jobId: 'sample-job-1',
-            originalId: 'sample-job-1',
-            type: 'job',
-            title: 'Sample Deleted Job',
-            description: 'This is a sample deleted job for demonstration purposes.',
-            location: 'Sample Location',
-            salary: '₹5-8 LPA',
-            skills: 'React, Node.js, JavaScript',
-            requirements: 'Sample requirements',
-            qualifications: 'Sample qualifications',
-            experienceLevel: 'fresher',
-            experienceMin: 0,
-            experienceMax: 2,
-            jobType: 'full-time',
-            applyUrl: '',
-            closingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            batchEligible: '2024',
-            isActive: true,
-            deletedAt: new Date(),
-            company: {
-              id: 'sample-company',
-              name: 'Sample Company',
-              description: 'A sample company',
-              website: '',
-              linkedinUrl: '',
-              logo: '',
-              location: 'Sample Location',
-              industry: 'Technology',
-              size: 'medium',
-              founded: '2020',
-              createdAt: new Date()
+        // Otherwise, create the expected structure from the flat data
+        return {
+          id: deletedPost.id,
+          userId: deletedPost.userId,
+          deletedAt: deletedPost.deletedAt,
+          job: {
+            id: deletedPost.originalId || deletedPost.jobId,
+            title: deletedPost.title,
+            description: deletedPost.description,
+            location: deletedPost.location,
+            salary: deletedPost.salary,
+            skills: deletedPost.skills || '',
+            closingDate: deletedPost.scheduledDeletion || new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+            company: deletedPost.company || {
+              name: 'Unknown Company',
+              location: deletedPost.location || 'Unknown Location'
             }
           }
-        ];
-      }
-
-      // Ensure we always return an array
-      if (!Array.isArray(deletedPosts)) {
-        console.log('[DELETED POSTS API] Storage returned non-array, converting to empty array');
-        deletedPosts = [];
-      }
-
-      // Filter and enrich deleted posts to ensure they have all required data
-      const enrichedPosts = deletedPosts.map(post => {
-        // Ensure post has minimum required structure
-        const enrichedPost = {
-          id: post.id,
-          userId: post.userId,
-          jobId: post.jobId || post.originalId,
-          originalId: post.originalId || post.jobId,
-          type: post.type || 'job',
-          title: post.title || 'Unknown Job',
-          description: post.description || 'No description available',
-          location: post.location || 'Location not specified',
-          salary: post.salary || 'Salary not specified',
-          skills: post.skills || '',
-          requirements: post.requirements || '',
-          qualifications: post.qualifications || '',
-          experienceLevel: post.experienceLevel || 'fresher',
-          experienceMin: post.experienceMin || 0,
-          experienceMax: post.experienceMax || 1,
-          jobType: post.jobType || 'full-time',
-          applyUrl: post.applyUrl || '',
-          closingDate: post.closingDate || new Date(),
-          batchEligible: post.batchEligible || '',
-          isActive: post.isActive !== undefined ? post.isActive : true,
-          deletedAt: post.deletedAt || new Date(),
-          company: post.company || {
-            id: 'unknown',
-            name: 'Unknown Company',
-            description: '',
-            website: '',
-            linkedinUrl: '',
-            logo: '',
-            location: post.location || 'Unknown Location',
-            industry: '',
-            size: 'medium',
-            founded: '',
-            createdAt: new Date()
-          },
-          job: post.job // Keep original job data if available
         };
-
-        return enrichedPost;
       });
 
-      console.log(`[DELETED POSTS API] Returning ${enrichedPosts.length} enriched deleted posts for user ${userId}`);
-      
-      if (enrichedPosts.length > 0) {
-        console.log('[DELETED POSTS API] Sample enriched post:', {
-          id: enrichedPosts[0].id,
-          title: enrichedPosts[0].title,
-          company: enrichedPosts[0].company.name,
-          deletedAt: enrichedPosts[0].deletedAt
-        });
-      }
-
-      res.status(200).json(enrichedPosts);
+      console.log(`API: Returning ${transformedDeletedPosts.length} deleted posts for user ${userId}`);
+      res.json(transformedDeletedPosts);
     } catch (error) {
-      console.error('[DELETED POSTS API] Error fetching deleted posts for user', userId, ':', error);
-      res.status(200).json([]);
+      console.error('Error fetching deleted posts:', error);
+      res.status(500).json({ error: 'Failed to fetch deleted posts', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -728,8 +514,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/courses/:id", async (req, res) => {
     try {
       const courseId = req.params.id;
-      console.log(`Updating course with ID: ${courseId}`, req.body);
-      
       const validatedData = insertCourseSchema.parse(req.body);
 
       // Ensure the course remains free when updated
@@ -738,13 +522,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedCourse = await storage.updateCourse(courseId, validatedData);
 
       if (!updatedCourse) {
-        console.log(`Course not found for update: ${courseId}`);
         return res.status(404).json({ message: "Course not found" });
       }
 
-      console.log(`Course updated successfully: ${courseId}`);
-      
-      // Return the updated course directly
       res.json(updatedCourse);
     } catch (error) {
       console.error("Error updating course:", error);
@@ -807,37 +587,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/companies/:id", async (req, res) => {
     try {
       const companyId = req.params.id;
-      console.log(`[COMPANY UPDATE] Updating company with ID: ${companyId}`, req.body);
+      console.log(`Updating company with ID: ${companyId}`, req.body);
 
       // Validate the data
       const validatedData = insertCompanySchema.parse(req.body);
-      console.log(`[COMPANY UPDATE] Validated data:`, validatedData);
 
       // Check if company exists first
       const existingCompany = await storage.getCompany(companyId);
       if (!existingCompany) {
-        console.log(`[COMPANY UPDATE] Company not found for update: ${companyId}`);
+        console.log(`Company not found for update: ${companyId}`);
         return res.status(404).json({ message: "Company not found" });
       }
-      console.log(`[COMPANY UPDATE] Existing company found:`, existingCompany);
 
       const updatedCompany = await storage.updateCompany(companyId, validatedData);
 
       if (!updatedCompany) {
-        console.log(`[COMPANY UPDATE] Failed to update company: ${companyId}`);
+        console.log(`Failed to update company: ${companyId}`);
         return res.status(500).json({ message: "Failed to update company" });
       }
 
-      console.log(`[COMPANY UPDATE] Company updated successfully:`, updatedCompany);
-      
-      // Ensure we return the correct format
-      res.json(updatedCompany);
+      console.log(`Company updated successfully: ${companyId}`);
+      res.json({ message: "Company updated successfully", company: updatedCompany });
     } catch (error) {
-      console.error("[COMPANY UPDATE] Error updating company:", error);
+      console.error("Error updating company:", error);
       if (error instanceof Error) {
-        res.status(400).json({ message: error.message });
+        res.status(400).json({ message: error.message, details: error.stack });
       } else {
-        res.status(500).json({ message: "Failed to update company" });
+        res.status(500).json({ message: "Failed to update company", error: String(error) });
       }
     }
   });
@@ -1157,46 +933,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // SECURITY: Critical Admin Access Control System
-  // This is a core security pillar - tampering will break entire system
+  // SECURITY: Admin password verification system
+  // This system is essential for secure job posting functionality
   app.post("/api/admin/verify-password", async (req, res) => {
     try {
       const { password } = req.body;
 
       if (!password) {
-        return res.status(400).json({ success: false, message: "Access denied - invalid request" });
+        return res.status(400).json({ success: false, message: "Password is required" });
       }
 
-      // Secure password verification using SHA-256 with salt
+      // SECURITY: Encrypted password verification - NO plaintext passwords
       const { createHash } = await import('crypto');
-      
-      // Create hash with the same salt used on client-side
-      const inputHash = createHash('sha256').update(password + 'jobportal_secure_salt_2024').digest('hex');
-      
-      // Encrypted hash for the correct password "161417"
-      // This hash is generated from the password + salt combination
-      const validPasswordHash = '5fa67fcceff1ceed89b8f82a88ee412f50b780b5e8c8eb9db7e92b9e8c2a5c43';
+      const inputHash = createHash('sha256').update(password + 'jobportal_secure_2024').digest('hex');
+      const correctHash = 'a223ba8073ffd61e2c4705bebb65d938f4073142369998524bb5293c9f1534ad'; // Secure hash
 
-      console.log('🔐 Admin verification attempt - security check active');
-      console.log('🛡️ Password hash verification:', inputHash.slice(0, 16) + '****');
+      console.log('🔐 Admin access attempt - verifying credentials...');
+      console.log('🔒 Security check:', inputHash.slice(0, 8) + '****');
 
-      if (inputHash === validPasswordHash) {
-        // Generate secure session token
-        const sessionToken = createHash('sha256').update(Date.now() + Math.random().toString()).digest('hex');
-        console.log('✅ Admin access granted');
-        res.json({ 
-          success: true, 
-          sessionToken,
-          timestamp: Date.now()
-        });
+      if (inputHash === correctHash) {
+        res.json({ success: true });
       } else {
-        // Log failed attempt
-        console.log('🚨 Failed admin access attempt from IP:', req.ip);
-        res.status(401).json({ success: false, message: "Access denied - invalid password" });
+        res.status(401).json({ success: false, message: "Invalid password" });
       }
     } catch (error) {
-      console.error("🔴 Critical security system error:", error);
-      res.status(500).json({ success: false, message: "Security system unavailable" });
+      console.error("Error verifying admin password:", error);
+      res.status(500).json({ success: false, message: "Failed to verify password" });
     }
   });
 
@@ -1283,50 +1045,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
       }
 
-      res.json({ success: true, message: "OTP verified successfully" });
-    } catch (error) {
-      console.error("Error verifying recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to verify OTP" });
-    }
-  });
-
-  // Reset admin password
-  app.post("/api/admin/reset-password", async (req, res) => {
-    try {
-      const { email, newPassword, otp } = req.body;
-
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
-
-      if (!newPassword || !otp) {
-        return res.status(400).json({ success: false, message: "New password and OTP are required" });
-      }
-
-      // Validate new password format (6 digits)
-      if (!/^\d{6}$/.test(newPassword)) {
-        return res.status(400).json({ success: false, message: "Password must be exactly 6 digits" });
-      }
-
-      // Verify OTP is still valid
-      const isValidOtp = await storage.verifyPasswordResetOtp(email, otp);
-      if (!isValidOtp) {
-        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-
-      // Update the admin password
-      await storage.updateAdminPassword(newPassword);
-      
-      // Clear the OTP after successful password reset
+      // Clear the OTP after successful verification
       await storage.clearPasswordResetOtp(email);
 
-      console.log('🔐 Admin password updated successfully');
-      res.json({ success: true, message: "Password updated successfully" });
+      res.json({ success: true, message: "Recovery verified successfully" });
     } catch (error) {
-      console.error("Error resetting password:", error);
-      res.status(500).json({ success: false, message: "Failed to reset password" });
+      console.error("Error verifying recovery OTP:", error);
+      res.status(500).json({ success: false, message: "Failed to verify recovery OTP" });
     }
   });
 
