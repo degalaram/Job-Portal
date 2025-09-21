@@ -1,1216 +1,928 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
+
+import { useState, useEffect } from 'react';
+import { useLocation } from 'wouter';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
+import { Navbar } from '@/components/job-portal/navbar';
 import {
-  insertUserSchema,
-  insertJobSchema,
-  insertApplicationSchema,
-  insertContactSchema,
-  insertCompanySchema,
-  insertCourseSchema,
-  loginSchema
-} from "../shared/schema.js";
-import path from 'path';
-import fs from 'fs';
-import { marked } from 'marked';
-import { fileURLToPath } from 'url';
-import cors from 'cors';
-import { nanoid } from 'nanoid';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-
-export async function registerRoutes(app: Express): Promise<Server> {
-  // CORS is already configured in server/index.ts - no need to duplicate here
-
-  // Auth routes
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const validatedData = insertUserSchema.parse(req.body);
-
-      // Check if user already exists
-      const existingUser = await storage.getUserByEmail(validatedData.email);
-      if (existingUser) {
-        return res.status(400).json({ message: "User already exists with this email" });
-      }
-
-      const user = await storage.createUser(validatedData);
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error creating user:", error);
-      res.status(500).json({ message: "Failed to create user" });
-    }
-  });
-
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const validatedData = loginSchema.parse(req.body);
-      const user = await storage.validateUser(validatedData.email, validatedData.password);
-
-      if (!user) {
-        return res.status(401).json({ message: "Wrong username or wrong password" });
-      }
-
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error logging in user:", error);
-      res.status(500).json({ message: "Failed to login" });
-    }
-  });
-
-  // User profile routes
-  app.patch("/api/users/:id", async (req, res) => {
-    try {
-      const userId = req.params.id;
-      const updateData = req.body;
-
-      // Handle password update separately
-      if (updateData.currentPassword && updateData.newPassword) {
-        const user = await storage.getUserById(userId);
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        const bcrypt = await import('bcryptjs');
-        const isValidPassword = await bcrypt.compare(updateData.currentPassword, user.password);
-        if (!isValidPassword) {
-          return res.status(400).json({ message: "Current password is not correct" });
-        }
-
-        const hashedPassword = await bcrypt.hash(updateData.newPassword, 12);
-        updateData.password = hashedPassword;
-        delete updateData.currentPassword;
-        delete updateData.newPassword;
-      }
-
-      const updatedUser = await storage.updateUser(userId, updateData);
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Remove password from response
-      const { password, ...userWithoutPassword } = updatedUser;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error updating user:", error);
-      res.status(500).json({ message: "Failed to update user" });
-    }
-  });
-
-  // Password recovery routes
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    try {
-      const { email } = req.body;
-
-      if (!email) {
-        return res.status(400).json({ message: "Email is required" });
-      }
-
-      // Check if user exists
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: "User not found with this email" });
-      }
-
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Store OTP in memory (in production, use a proper storage solution)
-      await storage.storePasswordResetOtp(email, otp);
-
-      // In a real implementation, send email with OTP using SendGrid
-      // For now, we'll just log it and return success
-      console.log(`Password reset OTP for ${email}: ${otp}`);
-
-      res.json({ message: "OTP sent to your email" });
-    } catch (error) {
-      console.error("Error sending password reset OTP:", error);
-      res.status(500).json({ message: "Failed to send OTP" });
-    }
-  });
-
-  app.post("/api/auth/verify-otp", async (req, res) => {
-    try {
-      const { email, otp } = req.body;
-
-      if (!email || !otp) {
-        return res.status(400).json({ message: "Email and OTP are required" });
-      }
-
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ message: "Invalid or expired OTP" });
-      }
-
-      res.json({ message: "OTP verified successfully" });
-    } catch (error) {
-      console.error("Error verifying OTP:", error);
-      res.status(500).json({ message: "Failed to verify OTP" });
-    }
-  });
-
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
-      const { email, otp, newPassword } = req.body;
-
-      if (!email || !otp || !newPassword) {
-        return res.status(400).json({ message: "Email, OTP, and new password are required" });
-      }
-
-      // Verify OTP again
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ message: "Invalid or expired OTP" });
-      }
-
-      // Update password
-      await storage.updateUserPassword(email, newPassword);
-
-      // Clear the OTP
-      await storage.clearPasswordResetOtp(email);
-
-      res.json({ message: "Password updated successfully" });
-    } catch (error) {
-      console.error("Error resetting password:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
-
-  // Jobs routes
-  app.get('/api/jobs', async (req, res) => {
-    try {
-      const userId = req.headers['user-id'] as string;
-      console.log(`[${new Date().toLocaleTimeString()}] [express] GET /api/jobs - User: ${userId}`);
-
-      const filters = {
-        experienceLevel: req.query.experienceLevel as string,
-        location: req.query.location as string,
-        search: req.query.search as string,
-        userId: userId || undefined
-      };
-
-      const jobs = await storage.getJobs(filters);
-      console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'} (after filtering deleted jobs)`);
-      res.json(jobs);
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-      res.status(500).json({ error: 'Failed to fetch jobs' });
-    }
-  });
-
-  // Get single job
-  app.get('/api/jobs/:id', async (req, res) => {
-    try {
-      const job = await storage.getJobById(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
-      }
-      res.json(job);
-    } catch (error) {
-      console.error('Get job error:', error);
-      res.status(500).json({ error: 'Failed to get job' });
-    }
-  });
-
-  // Soft delete a job (hide from user's view)
-  app.post('/api/jobs/:jobId/delete', async (req, res) => {
-    try {
-      const { jobId } = req.params;
-      const { userId } = req.body;
-
-      console.log(`[DELETE JOB] Request received for job ${jobId} from user ${userId}`);
-
-      if (!userId) {
-        console.log('[DELETE JOB] User ID missing from request body');
-        return res.status(400).json({ error: 'User ID required' });
-      }
-
-      console.log(`[DELETE JOB] Attempting to soft delete job ${jobId} for user ${userId}`);
-
-      // Find the job first
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        console.log(`[DELETE JOB] Job not found: ${jobId}`);
-        return res.status(404).json({ error: 'Job not found' });
-      }
-
-      console.log(`[DELETE JOB] Found job: ${job.title}`);
-
-      // Check if already deleted by this user
-      const userDeletedPosts = await storage.getUserDeletedPosts(userId);
-      const existingDeletedPost = userDeletedPosts.find(dp => 
-        (dp.originalId === jobId || dp.jobId === jobId) && dp.userId === userId
-      );
-      
-      if (existingDeletedPost) {
-        console.log(`[DELETE JOB] Job already deleted by user ${userId}`);
-        return res.json({ message: 'Job already deleted', success: true });
-      }
-
-      // Remove ALL applications for this job by this user before soft deleting
-      console.log(`[DELETE JOB] Removing ALL applications for job ${jobId} by user ${userId}`);
-      const userApplications = await storage.getUserApplications(userId);
-      const applicationsToRemove = userApplications.filter(app => app.jobId === jobId);
-      
-      console.log(`[DELETE JOB] Found ${applicationsToRemove.length} applications to remove for job ${jobId}`);
-      
-      for (const app of applicationsToRemove) {
-        await storage.deleteApplication(app.id);
-        console.log(`[DELETE JOB] Removed application ${app.id} for job ${jobId}`);
-      }
-
-      // Also ensure we clean up any stale application records for this specific job-user combination
-      await storage.cleanupApplicationsForJob(jobId, userId);
-
-      // Use the storage's softDeleteJob method
-      const deletedPost = await storage.softDeleteJob(jobId, userId);
-      
-      console.log(`[DELETE JOB] Successfully soft deleted job ${jobId} for user ${userId}`);
-      console.log(`[DELETE JOB] Created deleted post: ${deletedPost.id}`);
-
-      res.json({ 
-        message: 'Job deleted successfully', 
-        success: true,
-        deletedPostId: deletedPost.id,
-        applicationsRemoved: applicationsToRemove.length
-      });
-
-    } catch (error) {
-      console.error('[DELETE JOB] Error:', error);
-      res.status(500).json({ 
-        error: 'Failed to delete job',
-        message: error instanceof Error ? error.message : 'Unknown error occurred'
-      });
-    }
-  });
-
-  app.post("/api/jobs", async (req, res) => {
-    try {
-      // SECURITY: Verify security token from admin system
-      const { _securityToken, _timestamp, ...jobRequestData } = req.body;
-
-      if (!_securityToken || !_timestamp) {
-        return res.status(403).json({ message: "Security validation failed. Job creation requires proper authentication." });
-      }
-
-      // Verify token timestamp validity (within 1 hour)
-      const tokenAge = Date.now() - Number(_timestamp);
-      if (tokenAge > 3600000) { // 1 hour
-        return res.status(403).json({ message: "Security token expired. Please re-authenticate." });
-      }
-
-      // Convert string date to Date object
-      const jobData = {
-        ...jobRequestData,
-        closingDate: new Date(jobRequestData.closingDate),
-        experienceMin: Number(jobRequestData.experienceMin) || 0,
-        experienceMax: Number(jobRequestData.experienceMax) || 1,
-      };
-
-      const validatedData = insertJobSchema.parse(jobData);
-      const job = await storage.createJob(validatedData);
-      res.json(job);
-    } catch (error) {
-      console.error("Error creating job:", error);
-      res.status(500).json({ message: "Failed to create job" });
-    }
-  });
-
-  // Applications routes
-  app.post("/api/applications", async (req, res) => {
-    try {
-      const validatedData = insertApplicationSchema.parse(req.body);
-      const application = await storage.createApplication(validatedData);
-      res.json(application);
-    } catch (error) {
-      console.error("Error creating application:", error);
-      res.status(500).json({ message: "Failed to create application" });
-    }
-  });
-
-  app.get('/api/applications/user/:userId', async (req, res) => {
-    try {
-      const { userId } = req.params;
-      console.log(`Getting applications for user: ${userId}`);
-
-      const userApplications = await storage.getUserApplications(userId);
-      console.log(`Found ${userApplications.length} applications for user ${userId}`);
-
-      res.json(userApplications);
-    } catch (error) {
-      console.error('Error fetching user applications:', error);
-      res.status(500).json({ error: 'Failed to fetch applications' });
-    }
-  });
-
-  app.delete("/api/applications/:id", async (req, res) => {
-    try {
-      await storage.deleteApplication(req.params.id);
-      res.json({ message: "Application deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting application:", error);
-      res.status(500).json({ message: "Failed to delete application" });
-    }
-  });
-
-  // Soft delete application (move to deleted posts)
-  app.post("/api/applications/:id/soft-delete", async (req, res) => {
-    try {
-      const deletedPost = await storage.softDeleteApplication(req.params.id);
-      res.json(deletedPost);
-    } catch (error) {
-      console.error("Error soft deleting application:", error);
-      res.status(500).json({ message: "Failed to delete post" });
-    }
-  });
-
-  // Get deleted posts for a user
-  app.get("/api/deleted-posts/user/:userId", async (req, res) => {
-    const { userId } = req.params;
-    console.log(`API: Getting deleted posts for user ${userId}`);
-
-    try {
-      const deletedPosts = await storage.getUserDeletedPosts(userId);
-      console.log(`API: Raw deleted posts from storage:`, deletedPosts);
-
-      // Transform the data structure to match what the frontend expects
-      const transformedDeletedPosts = deletedPosts.map(deletedPost => {
-        // If it already has a job property, use it as is
-        if (deletedPost.job) {
-          return deletedPost;
-        }
-
-        // Otherwise, create the expected structure from the flat data
-        return {
-          id: deletedPost.id,
-          userId: deletedPost.userId,
-          deletedAt: deletedPost.deletedAt,
-          job: {
-            id: deletedPost.originalId || deletedPost.jobId,
-            title: deletedPost.title,
-            description: deletedPost.description,
-            location: deletedPost.location,
-            salary: deletedPost.salary,
-            skills: deletedPost.skills || '',
-            closingDate: deletedPost.scheduledDeletion || new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-            company: deletedPost.company || {
-              name: 'Unknown Company',
-              location: deletedPost.location || 'Unknown Location'
-            }
-          }
-        };
-      });
-
-      console.log(`API: Returning ${transformedDeletedPosts.length} deleted posts for user ${userId}`);
-      res.json(transformedDeletedPosts);
-    } catch (error) {
-      console.error('Error fetching deleted posts:', error);
-      res.status(500).json({ error: 'Failed to fetch deleted posts', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Restore deleted post
-  app.post("/api/deleted-posts/:id/restore", async (req, res) => {
-    try {
-      console.log(`Restoring deleted post: ${req.params.id}`);
-
-      // Get the deleted post first to understand what we're restoring
-      const deletedPosts = await storage.getDeletedPosts();
-      const deletedPost = deletedPosts.find(post => post.id === req.params.id);
-
-      if (!deletedPost) {
-        return res.status(404).json({ error: 'Deleted post not found' });
-      }
-
-      console.log(`Found deleted post for user ${deletedPost.userId} and job ${deletedPost.jobId}`);
-
-      // If this is a MemStorage instance, we need to manually clean up applications
-      if (storage.constructor.name === 'MemStorage') {
-        // Remove any applications for this job and user combination
-        const userApplications = await storage.getUserApplications(deletedPost.userId);
-        const applicationsToRemove = userApplications.filter(app => app.job.id === deletedPost.jobId);
-
-        console.log(`Found ${applicationsToRemove.length} applications to remove for job ${deletedPost.jobId}`);
-
-        for (const app of applicationsToRemove) {
-          await storage.deleteApplication(app.id);
-          console.log(`Removed application ${app.id}`);
-        }
-      }
-
-      // Now restore the post
-      const result = await storage.restoreDeletedPost(req.params.id);
-      console.log(`Successfully restored deleted post: ${req.params.id}`);
-      res.json(result);
-    } catch (error) {
-      console.error("Error restoring deleted post:", error);
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Permanently delete post
-  app.delete("/api/deleted-posts/:id/permanent", async (req, res) => {
-    try {
-      await storage.permanentlyDeletePost(req.params.id);
-      res.json({ message: "Post permanently deleted" });
-    } catch (error) {
-      console.error("Error permanently deleting post:", error);
-      res.status(500).json({ message: "Failed to permanently delete post" });
-    }
-  });
-
-  // Courses routes
-  app.get("/api/courses", async (req, res) => {
-    try {
-      const { category } = req.query;
-      const courses = await storage.getCourses(category as string);
-      res.json(courses);
-    } catch (error) {
-      console.error("Error fetching courses:", error);
-      res.status(500).json({ message: "Failed to fetch courses" });
-    }
-  });
-
-  app.get("/api/courses/:id", async (req, res) => {
-    try {
-      const course = await storage.getCourse(req.params.id);
-      if (!course) {
-        return res.status(404).json({ message: "Course not found" });
-      }
-      res.json(course);
-    } catch (error) {
-      console.error("Error fetching course:", error);
-      res.status(500).json({ message: "Failed to fetch course" });
-    }
-  });
-
-  app.post("/api/courses", async (req, res) => {
-    try {
-      const course = {
-        id: nanoid(),
-        ...req.body,
-        price: 'Free', // Ensure all courses are free
-        createdAt: new Date()
-      };
-      const validatedData = insertCourseSchema.parse(course);
-      const createdCourse = await storage.createCourse(validatedData);
-      res.json(createdCourse);
-    } catch (error) {
-      console.error("Error creating course:", error);
-      res.status(500).json({ message: "Failed to create course" });
-    }
-  });
-
-  app.put("/api/courses/:id", async (req, res) => {
-    try {
-      const courseId = req.params.id;
-      const validatedData = insertCourseSchema.parse(req.body);
-
-      // Ensure the course remains free when updated
-      validatedData.price = 'Free';
-
-      const updatedCourse = await storage.updateCourse(courseId, validatedData);
-
-      if (!updatedCourse) {
-        return res.status(404).json({ message: "Course not found" });
-      }
-
-      res.json(updatedCourse);
-    } catch (error) {
-      console.error("Error updating course:", error);
-      res.status(500).json({ message: "Failed to update course" });
-    }
-  });
-
-  app.delete("/api/courses/:id", async (req, res) => {
-    try {
-      const courseId = req.params.id;
-      const deleted = await storage.deleteCourse(courseId);
-
-      if (!deleted) {
-        return res.status(404).json({ message: "Course not found" });
-      }
-
-      res.json({ message: "Course deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting course:", error);
-      res.status(500).json({ message: "Failed to delete course" });
-    }
-  });
-
-  // Companies routes
-  app.get("/api/companies", async (req, res) => {
-    try {
-      const companies = await storage.getCompanies();
-      res.json(companies);
-    } catch (error) {
-      console.error("Error fetching companies:", error);
-      res.status(500).json({ message: "Failed to fetch companies" });
-    }
-  });
-
-  app.get("/api/companies/:id", async (req, res) => {
-    try {
-      const company = await storage.getCompany(req.params.id);
-      if (!company) {
-        return res.status(404).json({ message: "Company not found" });
-      }
-      res.json(company);
-    } catch (error) {
-      console.error("Error fetching company:", error);
-      res.status(500).json({ message: "Failed to fetch company" });
-    }
-  });
-
-  // Company management routes
-  app.post("/api/companies", async (req, res) => {
-    try {
-      const validatedData = insertCompanySchema.parse(req.body);
-      const company = await storage.createCompany(validatedData);
-      res.json(company);
-    } catch (error) {
-      console.error("Error creating company:", error);
-      res.status(500).json({ message: "Failed to create company" });
-    }
-  });
-
-  app.put("/api/companies/:id", async (req, res) => {
-    try {
-      const companyId = req.params.id;
-      console.log(`Updating company with ID: ${companyId}`, req.body);
-
-      // Validate the data
-      const validatedData = insertCompanySchema.parse(req.body);
-
-      // Check if company exists first
-      const existingCompany = await storage.getCompany(companyId);
-      if (!existingCompany) {
-        console.log(`Company not found for update: ${companyId}`);
-        return res.status(404).json({ message: "Company not found" });
-      }
-
-      const updatedCompany = await storage.updateCompany(companyId, validatedData);
-
-      if (!updatedCompany) {
-        console.log(`Failed to update company: ${companyId}`);
-        return res.status(500).json({ message: "Failed to update company" });
-      }
-
-      console.log(`Company updated successfully: ${companyId}`);
-      res.json({ message: "Company updated successfully", company: updatedCompany });
-    } catch (error) {
-      console.error("Error updating company:", error);
-      if (error instanceof Error) {
-        res.status(400).json({ message: error.message, details: error.stack });
-      } else {
-        res.status(500).json({ message: "Failed to update company", error: String(error) });
-      }
-    }
-  });
-
-  // Company deletion endpoint
-  app.delete('/api/companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Deleting company with ID: ${id}`);
-
-      const deleted = await storage.deleteCompany(id);
-
-      if (!deleted) {
-        console.log(`Company not found: ${id}`);
-        return res.status(404).json({ message: 'Company not found' });
-      }
-
-      console.log(`Company deleted successfully: ${id}`);
-      res.json({ message: 'Company deleted successfully' });
-    } catch (error) {
-      console.error(`Error deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to delete company' });
-    }
-  });
-
-  // Company soft delete endpoint (move to deleted companies)
-  app.post('/api/companies/:id/soft-delete', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Soft deleting company with ID: ${id}`);
-
-      const deletedCompany = await storage.softDeleteCompany(id);
-
-      if (!deletedCompany) {
-        console.log(`Company not found: ${id}`);
-        return res.status(404).json({ message: 'Company not found' });
-      }
-
-      console.log(`Company moved to deleted companies: ${id}`);
-      res.json({ message: 'Company moved to deleted companies', deletedCompany });
-    } catch (error) {
-      console.error(`Error soft deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to move company to deleted companies' });
-    }
-  });
-
-  // Get deleted companies
-  app.get('/api/deleted-companies', async (req, res) => {
-    try {
-      const deletedCompanies = await storage.getDeletedCompanies();
-      res.json(deletedCompanies);
-    } catch (error) {
-      console.error('Error fetching deleted companies:', error);
-      res.status(500).json({ message: 'Failed to fetch deleted companies' });
-    }
-  });
-
-  // Restore deleted company
-  app.post('/api/deleted-companies/:id/restore', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Restoring deleted company with ID: ${id}`);
-
-      const restoredCompany = await storage.restoreDeletedCompany(id);
-
-      if (!restoredCompany) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Company restored successfully: ${id}`);
-      res.json({ message: 'Company restored successfully', company: restoredCompany });
-    } catch (error) {
-      console.error(`Error restoring company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to restore company' });
-    }
-  });
-
-  // Update deleted company
-  app.put('/api/deleted-companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updateData = req.body;
-      console.log(`Updating deleted company with ID: ${id}`, updateData);
-
-      // Validate the data
-      const validatedData = insertCompanySchema.parse(updateData);
-
-      const updatedCompany = await storage.updateDeletedCompany(id, validatedData);
-
-      if (!updatedCompany) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Deleted company updated successfully: ${id}`);
-      res.json({ message: 'Deleted company updated successfully', company: updatedCompany });
-    } catch (error) {
-      console.error(`Error updating deleted company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to update deleted company', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  // Permanently delete company
-  app.delete('/api/deleted-companies/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      console.log(`Permanently deleting company with ID: ${id}`);
-
-      const deleted = await storage.permanentlyDeleteCompany(id);
-
-      if (!deleted) {
-        console.log(`Deleted company not found: ${id}`);
-        return res.status(404).json({ message: 'Deleted company not found' });
-      }
-
-      console.log(`Company permanently deleted: ${id}`);
-      res.json({ message: 'Company permanently deleted' });
-    } catch (error) {
-      console.error(`Error permanently deleting company with ID ${req.params.id}:`, error);
-      res.status(500).json({ message: 'Failed to permanently delete company' });
-    }
-  });
-
-  // Contact routes
-  app.post("/api/contact", async (req, res) => {
-    try {
-      const validatedData = insertContactSchema.parse(req.body);
-      const contact = await storage.createContact(validatedData);
-      res.json(contact);
-    } catch (error) {
-      console.error("Error creating contact:", error);
-      res.status(500).json({ message: "Failed to create contact" });
-    }
-  });
-
-  // Job URL Analysis route
-  app.post("/api/jobs/analyze-url", async (req, res) => {
-    try {
-      const { url } = req.body;
-      console.log(`Analyzing job URL: ${url}`);
-
-      if (!url) {
-        return res.status(400).json({ message: "URL is required" });
-      }
-
-      // Get available companies to map to real company IDs
-      const companies = await storage.getCompanies();
-      console.log(`Found ${companies.length} companies for analysis`);
-
-      // Enhanced job analysis with comprehensive data extraction
-      let mockAnalysis = {
-        title: "Software Developer",
-        description: "We are seeking a talented Software Developer to join our dynamic team. The successful candidate will be responsible for developing, testing, and maintaining software applications. This role offers excellent opportunities for career growth and skill development in a collaborative environment.",
-        requirements: "Strong programming fundamentals, Object-oriented programming concepts, Database management skills, Version control systems (Git), Problem-solving and analytical thinking, Team collaboration and communication skills",
-        qualifications: "Bachelor's degree in Computer Science, Information Technology, Software Engineering, or related field. Fresh graduates are welcome to apply. Strong academic record preferred.",
-        skills: "Java, Python, JavaScript, React.js, Node.js, HTML, CSS, SQL, MySQL, Git, RESTful APIs, Agile methodologies",
-        experienceLevel: "fresher",
-        experienceMin: 0,
-        experienceMax: 2,
-        location: "Bengaluru, Karnataka, India",
-        jobType: "full-time",
-        salary: "₹3.5-5.5 LPA",
-        applyUrl: url,
-        closingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        batchEligible: "2023, 2024, 2025",
-        isActive: true,
-        companyId: companies.length > 0 ? companies[0].id : "" // Use first available company
-      };
-
-      // URL pattern matching for better data extraction
-      const urlLower = url.toLowerCase();
-
-      // Company-specific analysis
-      if (urlLower.includes('microsoft.com') || urlLower.includes('msft')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('microsoft'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Engineer - Entry Level",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹12-18 LPA",
-          description: "Join Microsoft as a Software Engineer and work on cutting-edge technologies that impact billions of users worldwide. You'll collaborate with talented engineers to build scalable, reliable, and innovative solutions using Microsoft's technology stack.",
-          requirements: "Strong programming skills in C#, Java, or Python, Understanding of data structures and algorithms, Experience with cloud technologies (Azure preferred), Knowledge of software development lifecycle, Strong problem-solving abilities",
-          qualifications: "Bachelor's or Master's degree in Computer Science, Engineering, or related technical field, Strong academic performance, Internship or project experience preferred",
-          skills: "C#, .NET, Azure, JavaScript, TypeScript, Python, SQL Server, Entity Framework, ASP.NET Core, REST APIs, Microservices",
-          location: "Hyderabad, Telangana, India",
-          experienceMax: 3
-        };
-      } else if (urlLower.includes('accenture.com')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('accenture'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Associate Software Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹4.5-6.5 LPA",
-          description: "Accenture is seeking Associate Software Engineers to join our technology consulting team. You'll work on diverse projects across multiple industries, gaining exposure to latest technologies and methodologies while building enterprise-scale solutions.",
-          requirements: "Programming knowledge in Java, Python, or JavaScript, Understanding of software engineering principles, Database concepts and SQL knowledge, Agile/Scrum methodology awareness, Client interaction and communication skills",
-          qualifications: "BE/B.Tech/MCA in Computer Science, IT, or related field, Minimum 60% throughout academics, No active backlogs, Willingness to work in shifts",
-          skills: "Java, Spring Boot, Python, JavaScript, Angular, React, SQL, Oracle, MongoDB, Jenkins, Docker, AWS basics",
-          location: "Pune, Chennai, Bengaluru, Hyderabad",
-          batchEligible: "2022, 2023, 2024"
-        };
-      } else if (urlLower.includes('tcs.com') || urlLower.includes('tata consultancy')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('tcs') || c.name.toLowerCase().includes('tata'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Assistant System Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹3.36-4.2 LPA",
-          description: "TCS is hiring Assistant System Engineers for various technology domains. Join one of the world's largest IT services companies and work on innovative projects for global clients while developing your technical and professional skills.",
-          requirements: "Programming fundamentals in any language, Logical reasoning and analytical skills, Basic understanding of OOPS concepts, Communication skills for client interaction, Adaptability to learn new technologies",
-          qualifications: "BE/B.Tech/ME/M.Tech/MCA/MSc in relevant streams, Minimum 60% or 6.0 CGPA throughout (X, XII, Graduation), No standing backlogs during selection process",
-          skills: "Java, Python, C++, JavaScript, HTML, CSS, SQL, Data Structures, Algorithms, Software Testing basics",
-          location: "Multiple locations across India",
-          batchEligible: "2024, 2025"
-        };
-      } else if (urlLower.includes('infosys.com')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('infosys'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Systems Engineer",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹3.6-4.8 LPA",
-          description: "Infosys is looking for Systems Engineers to join our global technology team. You'll work on diverse projects, gain hands-on experience with cutting-edge technologies, and contribute to digital transformation initiatives for Fortune 500 clients.",
-          requirements: "Strong programming and analytical skills, Knowledge of software development lifecycle, Database management concepts, Problem-solving and debugging abilities, Team collaboration skills",
-          qualifications: "BE/B.Tech/ME/M.Tech in Computer Science, IT, Electronics, or related engineering streams, Consistent academic record with minimum 60% or equivalent CGPA",
-          skills: "Java, Python, JavaScript, React, Angular, Node.js, Spring Framework, SQL, MySQL, MongoDB, Git, DevOps basics",
-          location: "Bengaluru, Chennai, Hyderabad, Pune, Mysuru",
-          batchEligible: "2023, 2024, 2025"
-        };
-      } else if (urlLower.includes('amazon.com') || urlLower.includes('aws')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('amazon'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Development Engineer I",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹15-25 LPA",
-          description: "Amazon is seeking Software Development Engineers to build and scale world-class distributed systems. You'll work on challenging problems that directly impact millions of customers worldwide, using cutting-edge technologies in cloud computing, machine learning, and distributed systems.",
-          requirements: "Strong computer science fundamentals including data structures and algorithms, Programming experience in Java, C++, Python, or JavaScript, Understanding of system design principles, Problem-solving and analytical thinking, Leadership principles alignment",
-          qualifications: "Bachelor's or Master's degree in Computer Science or related field, Strong academic performance, Internship or project experience in software development",
-          skills: "Java, Python, C++, JavaScript, AWS, System Design, Data Structures, Algorithms, Distributed Systems, REST APIs",
-          location: "Bengaluru, Chennai, Hyderabad",
-          experienceMax: 2,
-          batchEligible: "2023, 2024"
-        };
-      } else if (urlLower.includes('google.com') || urlLower.includes('alphabet')) {
-        const company = companies.find(c => c.name.toLowerCase().includes('google'));
-        mockAnalysis = {
-          ...mockAnalysis,
-          title: "Software Engineer - New Grad",
-          companyId: company ? company.id : mockAnalysis.companyId,
-          salary: "₹18-30 LPA",
-          description: "Google is hiring Software Engineers to work on next-generation technologies that impact billions of users. You'll tackle complex technical challenges, work with cutting-edge tools and technologies, and collaborate with world-class engineers.",
-          requirements: "Strong foundation in computer science fundamentals, Programming proficiency in C++, Java, Python, or Go, Experience with data structures, algorithms, and software design, System design knowledge, Innovation and problem-solving mindset",
-          qualifications: "Bachelor's or Master's degree in Computer Science or related technical field, Exceptional academic record, Relevant internship or research experience preferred",
-          skills: "C++, Java, Python, Go, JavaScript, System Design, Machine Learning, Cloud Computing, Distributed Systems, Data Structures",
-          location: "Bengaluru, Gurugram, Mumbai, Hyderabad",
-          experienceMax: 1,
-          batchEligible: "2024, 2025"
-        };
-      }
-
-      // Role-specific enhancements based on URL keywords
-      if (urlLower.includes('data') && (urlLower.includes('analyst') || urlLower.includes('scientist'))) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Data Analyst');
-        mockAnalysis.skills = "Python, R, SQL, Excel, Tableau, Power BI, Statistics, Machine Learning basics, Pandas, NumPy";
-        mockAnalysis.requirements = "Statistical analysis skills, Data visualization experience, SQL database knowledge, Problem-solving abilities, Business acumen";
-      } else if (urlLower.includes('frontend') || urlLower.includes('ui') || urlLower.includes('react')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Frontend Developer');
-        mockAnalysis.skills = "HTML5, CSS3, JavaScript, React.js, Vue.js, Angular, TypeScript, SASS, Webpack, Git";
-        mockAnalysis.requirements = "Strong HTML, CSS, JavaScript knowledge, Modern framework experience, Responsive design skills, UI/UX understanding, Version control proficiency";
-      } else if (urlLower.includes('backend') || urlLower.includes('api') || urlLower.includes('server')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Backend Developer');
-        mockAnalysis.skills = "Java, Python, Node.js, Express.js, Spring Boot, SQL, NoSQL, REST APIs, Microservices, Docker";
-        mockAnalysis.requirements = "Server-side programming experience, Database design knowledge, API development skills, System architecture understanding, Performance optimization";
-      } else if (urlLower.includes('fullstack') || urlLower.includes('full-stack')) {
-        mockAnalysis.title = mockAnalysis.title.replace('Software Developer', 'Full Stack Developer');
-        mockAnalysis.skills = "JavaScript, React.js, Node.js, Python, Java, SQL, MongoDB, HTML, CSS, Git, AWS basics";
-        mockAnalysis.requirements = "Frontend and backend development skills, Database management, API integration, Full project lifecycle experience, Modern development tools proficiency";
-      }
-
-      // Location inference from URL
-      if (urlLower.includes('bangalore') || urlLower.includes('bengaluru')) {
-        mockAnalysis.location = "Bengaluru, Karnataka, India";
-      } else if (urlLower.includes('hyderabad')) {
-        mockAnalysis.location = "Hyderabad, Telangana, India";
-      } else if (urlLower.includes('chennai')) {
-        mockAnalysis.location = "Chennai, Tamil Nadu, India";
-      } else if (urlLower.includes('pune')) {
-        mockAnalysis.location = "Pune, Maharashtra, India";
-      } else if (urlLower.includes('mumbai')) {
-        mockAnalysis.location = "Mumbai, Maharashtra, India";
-      } else if (urlLower.includes('delhi') || urlLower.includes('gurgaon') || urlLower.includes('gurugram')) {
-        mockAnalysis.location = "Gurugram, Haryana, India";
-      } else if (urlLower.includes('noida')) {
-        mockAnalysis.location = "Noida, Uttar Pradesh, India";
-      }
-
-      // Experience level inference
-      if (urlLower.includes('senior') || urlLower.includes('lead') || urlLower.includes('sr.')) {
-        mockAnalysis.experienceLevel = "experienced";
-        mockAnalysis.experienceMin = 3;
-        mockAnalysis.experienceMax = 8;
-        mockAnalysis.salary = mockAnalysis.salary.replace('3.5-5.5', '8-15');
-      } else if (urlLower.includes('junior') || urlLower.includes('fresher') || urlLower.includes('entry') || urlLower.includes('graduate') || urlLower.includes('trainee')) {
-        mockAnalysis.experienceLevel = "fresher";
-        mockAnalysis.experienceMin = 0;
-        mockAnalysis.experienceMax = 2;
-      }
-
-      console.log(`Job analysis completed for: ${mockAnalysis.title}`);
-      // Return the analyzed job data
-      res.json(mockAnalysis);
-    } catch (error) {
-      console.error("Error analyzing job URL:", error);
-      res.status(500).json({ message: "Failed to analyze job URL" });
-    }
-  });
-
-  // SECURITY: Admin password verification system
-  // This system is essential for secure job posting functionality
-  app.post("/api/admin/verify-password", async (req, res) => {
-    try {
-      const { password } = req.body;
-
-      if (!password) {
-        return res.status(400).json({ success: false, message: "Password is required" });
-      }
-
-      // SECURITY: Encrypted password verification - NO plaintext passwords
-      const { createHash } = await import('crypto');
-      const inputHash = createHash('sha256').update(password + 'jobportal_secure_2024').digest('hex');
-      const correctHash = 'a223ba8073ffd61e2c4705bebb65d938f4073142369998524bb5293c9f1534ad'; // Secure hash
-
-      console.log('🔐 Admin access attempt - verifying credentials...');
-      console.log('🔒 Security check:', inputHash.slice(0, 8) + '****');
-
-      if (inputHash === correctHash) {
-        res.json({ success: true });
-      } else {
-        res.status(401).json({ success: false, message: "Invalid password" });
-      }
-    } catch (error) {
-      console.error("Error verifying admin password:", error);
-      res.status(500).json({ success: false, message: "Failed to verify password" });
-    }
-  });
-
-  // Admin recovery OTP system
-  app.post("/api/admin/send-recovery-otp", async (req, res) => {
-    try {
-      const { email } = req.body;
-
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
-
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Store OTP for recovery
-      await storage.storePasswordResetOtp(email, otp);
-
-      // Send email using SendGrid with proper error handling
-      const { default: sgMail } = await import('@sendgrid/mail');
-
-      if (!process.env.SENDGRID_API_KEY) {
-        throw new Error('SendGrid API key not configured');
-      }
-
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-      const msg = {
-        to: email,
-        from: 'ramdegala3@gmail.com', // Must be verified in SendGrid
-        subject: 'Admin Access Recovery - Job Portal',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2563eb;">Admin Access Recovery</h2>
-            <p>You requested to recover access to the Admin Job Portal.</p>
-            <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-              <h3 style="color: #1f2937; margin: 0;">Recovery Code:</h3>
-              <h1 style="color: #2563eb; font-size: 32px; letter-spacing: 4px; margin: 10px 0;">${otp}</h1>
-            </div>
-            <p><strong>This code will expire in 5 minutes.</strong></p>
-            <p style="color: #6b7280; font-size: 14px;">
-              If you didn't request this recovery, please ignore this email.
+  Search,
+  MapPin,
+  Users,
+  Calendar,
+  CheckCircle,
+  Eye,
+  Linkedin,
+  Mail,
+  Youtube,
+  X,
+  Trash2,
+  Instagram
+} from 'lucide-react';
+import { FaWhatsapp, FaTelegram } from 'react-icons/fa';
+import type { Job, Company } from '@shared/schema';
+
+type JobWithCompany = Job & { company: Company };
+
+// Footer component updated to display "Ram Job Portal 2025 All rights reserved"
+const Footer = () => {
+  return (
+    <footer className="bg-gray-900 dark:bg-gray-950 text-white py-12 mt-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Company Info */}
+          <div>
+            <h3 className="text-xl font-bold mb-4">Ram Job Portal</h3>
+            <p className="text-gray-300 mb-4">
+              Your gateway to amazing career opportunities. Connect with top companies and find your dream job.
             </p>
           </div>
-        `
-      };
+
+          {/* Quick Links */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Quick Links</h3>
+            <ul className="space-y-2">
+              <li><a href="/jobs" className="text-gray-300 hover:text-white transition-colors">Browse Jobs</a></li>
+              <li><a href="/companies" className="text-gray-300 hover:text-white transition-colors">Companies</a></li>
+              <li><a href="/courses" className="text-gray-300 hover:text-white transition-colors">Courses</a></li>
+              <li><a href="/contact" className="text-gray-300 hover:text-white transition-colors">Contact Us</a></li>
+            </ul>
+          </div>
+
+          {/* Social Media & Contact */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4 text-center md:text-left">Connect With Us</h3>
+            <div className="flex justify-center md:justify-start space-x-4 mb-4">
+              <a
+                href="https://www.linkedin.com/in/ramdegala/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 bg-[#0077B5] hover:bg-[#005A8D] rounded-full transition-colors"
+                title="LinkedIn"
+              >
+                <Linkedin className="w-5 h-5 text-white" />
+              </a>
+              <a
+                href="mailto:ramdegala9@gmail.com"
+                className="p-2 bg-[#EA4335] hover:bg-[#C53929] rounded-full transition-colors"
+                title="Gmail"
+              >
+                <Mail className="w-5 h-5 text-white" />
+              </a>
+              <a
+                href="https://www.youtube.com/@yourchannel" // Replace with actual YouTube URL
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 bg-[#FF0000] hover:bg-[#CC0000] rounded-full transition-colors"
+                title="YouTube"
+              >
+                <Youtube className="w-5 h-5 text-white" />
+              </a>
+              <a
+                href="https://www.twitter.com/yourhandle" // Replace with actual Twitter URL
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 bg-[#1DA1F2] hover:bg-[#1488D8] rounded-full transition-colors"
+                title="Twitter"
+              >
+                <X className="w-5 h-5 text-white" />
+              </a>
+            </div>
+            <p className="text-gray-300 text-sm text-center md:text-left">
+              Email: ramdegala9@gmail.com
+            </p>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-700 pt-8 mt-8 text-center">
+          <p className="text-gray-400">&copy; 2025 Ram Job Portal. All rights reserved.</p>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+
+  const getCompanyLogo = (company: Company) => {
+    const name = company.name.toLowerCase();
+
+    // First, check if company already has a logo URL
+    if (company.logo && company.logo.trim()) {
+      return company.logo;
+    }
+
+    // Major tech companies with specific logo mappings
+    const companyLogos = {
+      'accenture': 'https://logo.clearbit.com/accenture.com',
+      'tcs': 'https://logo.clearbit.com/tcs.com',
+      'tata consultancy': 'https://logo.clearbit.com/tcs.com',
+      'infosys': 'https://logo.clearbit.com/infosys.com',
+      'hcl': 'https://logo.clearbit.com/hcltech.com',
+      'hcl technologies': 'https://logo.clearbit.com/hcltech.com',
+      'wipro': 'https://logo.clearbit.com/wipro.com',
+      'cognizant': 'https://logo.clearbit.com/cognizant.com',
+      'capgemini': 'https://logo.clearbit.com/capgemini.com',
+      'microsoft': 'https://logo.clearbit.com/microsoft.com',
+      'google': 'https://logo.clearbit.com/google.com',
+      'alphabet': 'https://logo.clearbit.com/google.com',
+      'amazon': 'https://logo.clearbit.com/amazon.com',
+      'oracle': 'https://logo.clearbit.com/oracle.com',
+      'ibm': 'https://logo.clearbit.com/ibm.com',
+      'adobe': 'https://logo.clearbit.com/adobe.com',
+      'salesforce': 'https://logo.clearbit.com/salesforce.com',
+      'intel': 'https://logo.clearbit.com/intel.com',
+      'nvidia': 'https://logo.clearbit.com/nvidia.com',
+      'cisco': 'https://logo.clearbit.com/cisco.com',
+      'apple': 'https://logo.clearbit.com/apple.com',
+      'facebook': 'https://logo.clearbit.com/facebook.com',
+      'meta': 'https://logo.clearbit.com/meta.com',
+      'netflix': 'https://logo.clearbit.com/netflix.com',
+      'uber': 'https://logo.clearbit.com/uber.com',
+      'airbnb': 'https://logo.clearbit.com/airbnb.com',
+      'spotify': 'https://logo.clearbit.com/spotify.com',
+      'twitter': 'https://logo.clearbit.com/twitter.com',
+      'linkedin': 'https://logo.clearbit.com/linkedin.com',
+      'paypal': 'https://logo.clearbit.com/paypal.com',
+      'tesla': 'https://logo.clearbit.com/tesla.com',
+      'adp': 'https://logo.clearbit.com/adp.com',
+      'honeywell': 'https://logo.clearbit.com/honeywell.com',
+      'zoho': 'https://logo.clearbit.com/zoho.com',
+      'freshworks': 'https://logo.clearbit.com/freshworks.com',
+      'byju': 'https://logo.clearbit.com/byjus.com',
+      'flipkart': 'https://logo.clearbit.com/flipkart.com',
+      'paytm': 'https://logo.clearbit.com/paytm.com',
+      'ola': 'https://logo.clearbit.com/olacabs.com',
+      'swiggy': 'https://logo.clearbit.com/swiggy.com',
+      'zomato': 'https://logo.clearbit.com/zomato.com'
+    };
+
+    // Check for exact company name matches
+    for (const [key, logoUrl] of Object.entries(companyLogos)) {
+      if (name.includes(key)) {
+        return logoUrl;
+      }
+    }
+
+    // Try to extract domain from LinkedIn URL first (often more reliable)
+    if (company.linkedinUrl && company.linkedinUrl.trim()) {
+      try {
+        const linkedinUrl = new URL(company.linkedinUrl);
+        const pathParts = linkedinUrl.pathname.split('/');
+        const companySlug = pathParts[pathParts.indexOf('company') + 1];
+
+        if (companySlug && companySlug !== 'company') {
+          // Try common domain patterns based on LinkedIn company slug
+          const possibleDomains = [
+            `${companySlug}.com`,
+            `${companySlug}.co`,
+            `${companySlug}.in`,
+            `${companySlug}.org`
+          ];
+
+          // Return the first potential logo URL
+          return `https://logo.clearbit.com/${possibleDomains[0]}`;
+        }
+      } catch (error) {
+        console.log('Error parsing LinkedIn URL:', error);
+      }
+    }
+
+    // Try to fetch logo from company website
+    if (company.website && company.website.trim()) {
+      try {
+        const domain = new URL(company.website).hostname.replace('www.', '');
+        return `https://logo.clearbit.com/${domain}`;
+      } catch (error) {
+        console.log('Error parsing website URL:', error);
+      }
+    }
+
+    // Fallback: try to generate domain from company name
+    const cleanName = name
+      .replace(/\s+/g, '')
+      .replace(/[^a-z0-9]/g, '')
+      .toLowerCase();
+
+    if (cleanName.length > 2) {
+      return `https://logo.clearbit.com/${cleanName}.com`;
+    }
+
+    return null;
+  };
+
+
+
+const getExperienceBadgeColor = (level: string) => {
+  switch (level) {
+    case 'fresher': return 'bg-green-500 text-white';
+    case 'experienced': return 'bg-blue-500 text-white';
+    default: return 'bg-gray-500 text-white';
+  }
+};
+
+export default function Jobs() {
+  const [, navigate] = useLocation();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
+  const [appliedJobs, setAppliedJobs] = useState<string[]>([]);
+
+  const [user, setUser] = useState<any>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Check if user is logged in
+  useEffect(() => {
+    const checkAuth = () => {
+      try {
+        const userString = localStorage.getItem('user');
+        if (!userString || userString === 'null' || userString === 'undefined') {
+          console.log('User not found in localStorage, redirecting to login');
+          navigate('/login');
+          return;
+        }
+        
+        const parsedUser = JSON.parse(userString);
+        if (!parsedUser || !parsedUser.id) {
+          console.log('Invalid user data, redirecting to login');
+          navigate('/login');
+          return;
+        }
+        
+        setUser(parsedUser);
+        setIsAuthChecked(true);
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+        navigate('/login');
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
+  const { data: allJobs = [], isLoading, error: jobsError, refetch } = useQuery({
+    queryKey: ['jobs', user?.id],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/jobs', null, {
+        'user-id': user?.id || ''
+      });
+      const jobs = await response.json();
+      // Ensure we get a fresh list that excludes deleted jobs for this user
+      console.log(`Received ${jobs.length} jobs for user ${user?.id}`);
+      return jobs;
+    },
+    staleTime: 0, // Always consider data stale for immediate updates
+    gcTime: 30 * 1000, // 30 seconds for faster updates
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+    enabled: isAuthChecked && !!user?.id,
+  });
+
+  // Refetch jobs when component mounts or tab becomes active
+  useEffect(() => {
+    if (isAuthChecked && user?.id) {
+      refetch();
+    }
+  }, [refetch, isAuthChecked, user?.id]);
+
+  const { data: applications = [] } = useQuery({
+    queryKey: ['applications/user', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const response = await apiRequest('GET', `/api/applications/user/${user.id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch applications');
+      }
+      return response.json();
+    },
+    enabled: isAuthChecked && !!user?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    retry: 3,
+  });
+
+  useEffect(() => {
+    console.log('Applications data updated:', applications);
+    if (Array.isArray(applications) && applications.length > 0) {
+      const appliedJobIds = applications.map((app: any) => app.jobId);
+      console.log('Setting applied job IDs:', appliedJobIds);
+      setAppliedJobs(appliedJobIds);
+    } else {
+      console.log('No applications found, resetting applied jobs');
+      setAppliedJobs([]);
+    }
+  }, [applications]);
+
+  // Additional effect to handle real-time updates for applied jobs
+  useEffect(() => {
+    if (isAuthChecked && user?.id) {
+      // Force refresh of applications when jobs data changes
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      
+      // Also ensure we get fresh applications data
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      }, 100);
+    }
+  }, [allJobs, isAuthChecked, user?.id, queryClient]);
+
+  // Effect to ensure applied jobs state is always in sync
+  useEffect(() => {
+    if (Array.isArray(applications) && applications.length >= 0) {
+      const currentAppliedIds = applications.map((app: any) => app.jobId);
+      
+      // Only update if there's a real difference
+      const hasChanged = appliedJobs.length !== currentAppliedIds.length || 
+        appliedJobs.some(id => !currentAppliedIds.includes(id)) ||
+        currentAppliedIds.some(id => !appliedJobs.includes(id));
+        
+      if (hasChanged) {
+        console.log('Syncing applied jobs state:', currentAppliedIds);
+        setAppliedJobs(currentAppliedIds);
+      }
+    }
+  }, [applications, appliedJobs]);
+
+  // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
+  const applyMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const response = await apiRequest('POST', '/api/applications', {
+        userId: user?.id,
+        jobId: jobId,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      toast({
+        title: 'Application submitted!',
+        description: 'Your job application has been submitted successfully.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Application failed',
+        description: error.message || 'Failed to submit application',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
+      if (!userId) {
+        throw new Error('User not logged in');
+      }
+
+      console.log(`Attempting to delete job ${jobId} for user ${userId}`);
 
       try {
-        await sgMail.send(msg);
-        console.log(`Recovery OTP sent successfully to ${email}: ${otp}`);
-        res.json({ success: true, message: "Recovery OTP sent successfully" });
-      } catch (emailError) {
-        // Fallback: Log OTP to console for testing when SendGrid is not configured
-        console.log(`🔐 BACKUP - Recovery OTP generated for ${email.slice(0,3)}***@gmail.com: ${otp}`);
-        console.log('Note: Configure SendGrid sender verification to send actual emails');
-        res.json({ success: true, message: "Recovery OTP ready (check admin console)" });
-      }
-    } catch (error) {
-      console.error("Error sending recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to send recovery OTP" });
-    }
-  });
+        // Use the correct delete endpoint and send userId in the request body
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId });
 
-  // Verify recovery OTP
-  app.post("/api/admin/verify-recovery-otp", async (req, res) => {
-    try {
-      const { email, otp } = req.body;
+        if (!response.ok) {
+          let errorMessage = 'Failed to delete job';
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch {
+            errorMessage = `Server error: ${response.status}`;
+          }
 
-      // Verify this is the authorized recovery email
-      const authorizedEmail = 'ramdegala3@gmail.com';
-      if (email !== authorizedEmail) {
-        return res.status(403).json({ success: false, message: "Unauthorized email" });
-      }
-
-      if (!otp) {
-        return res.status(400).json({ success: false, message: "OTP is required" });
-      }
-
-      const isValid = await storage.verifyPasswordResetOtp(email, otp);
-
-      if (!isValid) {
-        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-
-      // Clear the OTP after successful verification
-      await storage.clearPasswordResetOtp(email);
-
-      res.json({ success: true, message: "Recovery verified successfully" });
-    } catch (error) {
-      console.error("Error verifying recovery OTP:", error);
-      res.status(500).json({ success: false, message: "Failed to verify recovery OTP" });
-    }
-  });
-
-  // Health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0',
-      uptime: process.uptime()
-    });
-  });
-
-  // Root API endpoint moved to /api to avoid interfering with frontend
-  app.get('/api', (req, res) => {
-    res.json({
-      message: 'JobPortal API is running',
-      status: 'healthy',
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Presentation download routes
-  app.get('/download-html', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      const markdownContent = fs.readFileSync(mdPath, 'utf8');
-      const htmlContent = marked.parse(markdownContent);
-
-      const fullHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>JobPortal Complete Presentation</title>
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      line-height: 1.6;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-      color: #333;
-    }
-    h1 { color: #2563eb; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
-    h2 { color: #1e40af; margin-top: 30px; }
-    h3 { color: #1d4ed8; }
-    .page-break { page-break-before: always; }
-    code { background: #f3f4f6; padding: 2px 4px; border-radius: 3px; }
-    pre { background: #f9fafb; padding: 15px; border-radius: 5px; overflow-x: auto; }
-    blockquote { border-left: 4px solid #2563eb; margin: 0; padding-left: 20px; font-style: italic; }
-    hr { border: none; border-top: 2px solid #e5e7eb; margin: 40px 0; }
-    img { max-width: 100%; height: auto; }
-  </style>
-</head>
-<body>
-  ${htmlContent}
-</body>
-</html>`;
-
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Content-Disposition', 'attachment; filename="JobPortal_Complete_Presentation.html"');
-      res.send(fullHTML);
-    } catch (error) {
-      console.error('Error generating HTML:', error);
-      res.status(500).json({ message: 'Error generating HTML file' });
-    }
-  });
-
-  app.get('/download-markdown', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      res.setHeader('Content-Type', 'text/markdown');
-      res.setHeader('Content-Disposition', 'attachment; filename="JobPortal_Complete_Presentation.md"');
-      res.sendFile(mdPath);
-    } catch (error) {
-      console.error('Error downloading markdown:', error);
-      res.status(500).json({ message: 'Error downloading markdown file' });
-    }
-  });
-
-  app.get('/presentation', (req, res) => {
-    try {
-      const mdPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.md');
-
-      if (!fs.existsSync(mdPath)) {
-        return res.status(404).json({ message: 'Presentation file not found' });
-      }
-
-      const markdownContent = fs.readFileSync(mdPath, 'utf8');
-      const htmlContent = marked.parse(markdownContent);
-
-      const fullHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>JobPortal Complete Presentation</title>
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      line-height: 1.6;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 20px;
-      color: #333;
-      background: #f8fafc;
-    }
-    .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { color: #2563eb; border-bottom: 3px solid #2563eb; padding-bottom: 10px; font-size: 2.5em; }
-    h2 { color: #1e40af; margin-top: 40px; font-size: 2em; }
-    h3 { color: #1d4ed8; font-size: 1.5em; }
-    code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; }
-    pre { background: #f9fafb; padding: 20px; border-radius: 8px; overflow-x: auto; border-left: 4px solid #2563eb; }
-    blockquote { border-left: 4px solid #2563eb; margin: 20px 0; padding-left: 20px; font-style: italic; background: #f8fafc; padding: 15px 20px; }
-    hr { border: none; border-top: 2px solid #e5e7eb; margin: 40px 0; }
-    img { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; }
-    .print-btn { position: fixed; top: 20px; right: 20px; background: #2563eb; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-    @media print { .print-btn { display: none; } }
-  </style>
-</head>
-<body>
-  <button class="print-btn" onclick="window.print()">Print/Save as PDF</button>
-  <div class="container">
-    ${htmlContent}
-  </div>
-</body>
-</html>`;
-
-      res.setHeader('Content-Type', 'text/html');
-      res.send(fullHTML);
-    } catch (error) {
-      console.error('Error serving presentation:', error);
-      res.status(500).json({ message: 'Error loading presentation' });
-    }
-  });
-
-  // PDF download endpoint (fallback)
-  app.get('/download-pdf', (req, res) => {
-    const pdfPath = path.join(__dirname, '..', 'JobPortal_Complete_Presentation.pdf');
-
-    if (fs.existsSync(pdfPath)) {
-      res.download(pdfPath, 'JobPortal_Complete_Presentation.pdf', (err) => {
-        if (err) {
-          console.error('Error downloading PDF:', err);
-          res.status(500).json({ message: 'Error downloading PDF' });
+          throw new Error(errorMessage);
         }
+
+        const result = await response.json();
+        console.log('Delete job success:', result);
+        return result;
+      } catch (error) {
+        console.error('Delete job API error:', error);
+        throw error;
+      }
+    },
+    onSuccess: (data, variables) => {
+      console.log('Delete job confirmed on server:', variables.jobId);
+      
+      // CRITICAL FIX: Immediately clear applied status for this job
+      setAppliedJobs(prev => {
+        const updated = prev.filter(id => id !== variables.jobId);
+        console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
+        return updated;
       });
-    } else {
-      res.status(404).json({ message: 'PDF file not found' });
-    }
+      
+      // Force immediate cache invalidation and refetch - clear all related caches
+      queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.removeQueries({ queryKey: ['jobs', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      
+      // Optimistically update the cache to remove the applied status immediately
+      queryClient.setQueryData(['applications/user', user?.id], (oldData: any) => {
+        if (Array.isArray(oldData)) {
+          return oldData.filter(app => app.jobId !== variables.jobId);
+        }
+        return oldData;
+      });
+      
+      // Small delay to ensure server has processed the deletion
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+        refetch();
+      }, 100);
+      
+      toast({
+        title: 'Job deleted successfully',
+        description: 'The job has been moved to deleted posts and is no longer available for application.',
+      });
+    },
+    onError: (error: any) => {
+      console.error('Delete job error:', error);
+      toast({
+        title: 'Delete failed',
+        description: error.message || 'Failed to delete job',
+        variant: 'destructive',
+      });
+    },
   });
 
-  const httpServer = createServer(app);
-  return httpServer;
+  // Show loading while checking authentication
+  if (!isAuthChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <Navbar />
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-300">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if API fails
+  if (jobsError && isAuthChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <Navbar />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h2>
+            <p className="text-gray-600 dark:text-gray-300 mb-4">Failed to connect to the server. Please try again later.</p>
+            <button 
+              onClick={() => refetch()}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              data-testid="button-retry"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const filteredJobs = Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
+    const matchesSearch = searchTerm === '' ||
+      job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.skills.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesLocation = locationFilter === '' ||
+      job.location.toLowerCase().includes(locationFilter.toLowerCase());
+
+    const now = new Date();
+    const closingDate = new Date(job.closingDate);
+    const isExpired = closingDate < now;
+
+    switch (activeTab) {
+      case 'fresher':
+        return matchesSearch && matchesLocation && job.experienceLevel === 'fresher' && !isExpired;
+      case 'experienced':
+        return matchesSearch && matchesLocation && job.experienceLevel === 'experienced' && !isExpired;
+      case 'expired':
+        return matchesSearch && matchesLocation && (isExpired || !job.isActive);
+      default:
+        return matchesSearch && matchesLocation && !isExpired && job.isActive;
+    }
+  }) : [];
+
+
+  const handleDeleteJob = (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    if (!user || !user.id) {
+      navigate('/login');
+      return;
+    }
+    if (window.confirm('Are you sure you want to delete this job? It will be moved to deleted posts and can be restored within 5 days.')) {
+      // Perform deletion and let the success handler manage UI updates
+      deleteJobMutation.mutate({ jobId, userId: user.id });
+    }
+  };
+
+  const handleJobClick = (jobId: string) => {
+    navigate(`/jobs/${jobId}`);
+  };
+
+  const handleApplyJob = (e: React.MouseEvent, job: JobWithCompany) => {
+    e.stopPropagation();
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    // If job has an apply URL, open it in a new tab
+    if (job.applyUrl) {
+      window.open(job.applyUrl, '_blank');
+      // Still track the application internally
+      applyMutation.mutate(job.id);
+    } else {
+      // Fallback to internal application tracking
+      applyMutation.mutate(job.id);
+    }
+  };
+
+  const handleShare = (e: React.MouseEvent, job: JobWithCompany, platform: string) => {
+    e.stopPropagation();
+    const jobUrl = `${window.location.origin}/jobs/${job.id}`;
+    const text = `Check out this job: ${job.title} at ${job.company.name}`;
+
+    switch (platform) {
+      case 'whatsapp':
+        window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + jobUrl)}`, '_blank');
+        break;
+      case 'telegram':
+        window.open(`https://t.me/share/url?url=${encodeURIComponent(jobUrl)}&text=${encodeURIComponent(text)}`, '_blank');
+        break;
+      case 'instagram':
+        // Instagram doesn't have direct link sharing, so copy to clipboard
+        navigator.clipboard.writeText(jobUrl);
+        alert('Link copied to clipboard! You can paste it on Instagram.');
+        break;
+      case 'gmail':
+        window.location.href = `mailto:?subject=${encodeURIComponent(job.title)}&body=${encodeURIComponent(text + ' ' + jobUrl)}`;
+        break;
+      default:
+        navigator.clipboard.writeText(jobUrl);
+        alert('Link copied to clipboard!');
+    }
+  };
+
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading jobs...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <Navbar />
+
+      {/* Job Search Section */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        <div className="bg-white rounded-lg shadow-sm p-4 sm:p-6 mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Input
+                  placeholder="Search jobs, companies, skills..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                  data-testid="search-jobs"
+                />
+              </div>
+            </div>
+            <div className="flex-1">
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Input
+                  placeholder="Location"
+                  value={locationFilter}
+                  onChange={(e) => setLocationFilter(e.target.value)}
+                  className="pl-10"
+                  data-testid="search-location"
+                />
+              </div>
+            </div>
+            <Button data-testid="search-button">
+              <Search className="w-4 h-4 mr-2" />
+              Search
+            </Button>
+          </div>
+        </div>
+
+        {/* Job Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* Mobile: 2x2 Grid Layout */}
+          <div className="block sm:hidden mb-6">
+            <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'all' 
+                    ? 'bg-primary text-primary-foreground shadow' 
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+                data-testid="tab-all-jobs"
+              >
+                All Jobs
+              </button>
+              <button
+                onClick={() => setActiveTab('fresher')}
+                className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'fresher' 
+                    ? 'bg-primary text-primary-foreground shadow' 
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+                data-testid="tab-fresher-jobs"
+              >
+                Fresher Jobs
+              </button>
+              <button
+                onClick={() => setActiveTab('experienced')}
+                className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'experienced' 
+                    ? 'bg-primary text-primary-foreground shadow' 
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+                data-testid="tab-experienced-jobs"
+              >
+                Experienced Jobs
+              </button>
+              <button
+                onClick={() => setActiveTab('expired')}
+                className={`px-4 py-3 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === 'expired' 
+                    ? 'bg-primary text-primary-foreground shadow' 
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+                data-testid="tab-expired-jobs"
+              >
+                Expired Jobs
+              </button>
+            </div>
+          </div>
+
+          {/* Desktop: Horizontal Layout */}
+          <TabsList className="hidden sm:grid w-full grid-cols-4 mb-4 sm:mb-6 md:mb-8 h-auto p-1">
+            <TabsTrigger value="all" data-testid="tab-all-jobs-desktop" className="text-sm px-3 py-2">All Jobs</TabsTrigger>
+            <TabsTrigger value="fresher" data-testid="tab-fresher-jobs-desktop" className="text-sm px-3 py-2">Fresher Jobs</TabsTrigger>
+            <TabsTrigger value="experienced" data-testid="tab-experienced-jobs-desktop" className="text-sm px-3 py-2">Experienced Jobs</TabsTrigger>
+            <TabsTrigger value="expired" data-testid="tab-expired-jobs-desktop" className="text-sm px-3 py-2">Expired Jobs</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value={activeTab}>
+            <div className="space-y-3 sm:space-y-4 md:space-y-6">
+              {filteredJobs.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <div className="text-gray-400 mb-4">
+                      <Users className="w-12 h-12 mx-auto" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No jobs found</h3>
+                    <p className="text-gray-600">
+                      {activeTab === 'expired'
+                        ? 'No expired jobs in your search criteria.'
+                        : 'Try adjusting your search criteria or check back later for new opportunities.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredJobs.map((job: JobWithCompany) => {
+                  const isApplied = appliedJobs.includes(job.id);
+                  const isExpired = new Date(job.closingDate) < new Date();
+
+                  return (
+                    <Card
+                      key={job.id}
+                      className="hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-blue-500 w-full"
+                      onClick={() => handleJobClick(job.id)}
+                      data-testid={`job-card-${job.id}`}
+                    >
+                      <CardContent className="p-3 sm:p-4 md:p-6">
+                        {/* Header with Company Logos */}
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-start space-x-3 flex-1">
+                            {/* Left Company Logo */}
+                            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                              {job.company.logo || getCompanyLogo(job.company) ? (
+                                <img 
+                                  src={job.company.logo || getCompanyLogo(job.company)!} 
+                                  alt={job.company.name}
+                                  className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    const parent = target.parentElement;
+                                    if (parent) {
+                                      parent.innerHTML = `<div class="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm sm:text-lg font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                  <span className="text-sm sm:text-lg font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Job Info */}
+                            <div className="flex-1 min-w-0">
+                              <CardTitle className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 dark:text-white mb-1 line-clamp-2 leading-tight">
+                                {job.title}
+                              </CardTitle>
+                              <p className="text-blue-600 dark:text-blue-400 font-medium mb-1 text-sm sm:text-base">{job.company.name}</p>
+                              <div className="flex items-center text-gray-600 dark:text-gray-400 text-xs sm:text-sm mb-1">
+                                <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                                <span className="truncate">{job.location}</span>
+                              </div>
+                              <div className="text-green-600 font-semibold text-sm sm:text-base md:text-lg">
+                                {job.salary}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right Company Logo - Larger */}
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
+                            {job.company.logo || getCompanyLogo(job.company) ? (
+                              <img 
+                                src={job.company.logo || getCompanyLogo(job.company)!} 
+                                alt={job.company.name}
+                                className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = `<div class="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"><span class="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <span className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Experience & Closing Date - Mobile Optimized */}
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-3 text-xs sm:text-sm text-gray-600">
+                          <div className="flex items-center">
+                            <Users className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                            <span>{job.experienceMin}-{job.experienceMax} years</span>
+                          </div>
+                          <div className="flex items-center">
+                            <Calendar className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                            <span>Closes: {new Date(job.closingDate).toLocaleDateString('en-GB')}</span>
+                          </div>
+                        </div>
+
+                        {/* Skills Section - Mobile Responsive */}
+                        <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3">
+                          {job.skills.split(',').slice(0, 4).map((skill, index) => (
+                            <Badge key={index} variant="outline" className="text-xs px-1.5 py-0.5 sm:px-2 sm:py-1">
+                              {skill.trim()}
+                            </Badge>
+                          ))}
+                          {job.skills.split(',').length > 4 && (
+                            <Badge variant="outline" className="text-xs px-1.5 py-0.5 sm:px-2 sm:py-1">
+                              +{job.skills.split(',').length - 4} more
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Bottom Section Layout */}
+                        <div className="pt-3 border-t border-gray-100">
+                          <div className="flex items-center justify-between">
+                            {/* Left Side: Social Media Icons (4 icons) */}
+                            <div className="flex items-center space-x-1 sm:space-x-2">
+                              <button
+                                onClick={(e) => handleShare(e, job, 'whatsapp')}
+                                className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-gray-700 rounded-full transition-colors"
+                                title="Share on WhatsApp"
+                                data-testid={`share-whatsapp-${job.id}`}
+                              >
+                                <FaWhatsapp className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => handleShare(e, job, 'telegram')}
+                                className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-full transition-colors"
+                                title="Share on Telegram"
+                                data-testid={`share-telegram-${job.id}`}
+                              >
+                                <FaTelegram className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => handleShare(e, job, 'instagram')}
+                                className="p-1 text-pink-600 hover:bg-pink-50 dark:hover:bg-gray-700 rounded-full transition-colors"
+                                title="Share on Instagram"
+                                data-testid={`share-instagram-${job.id}`}
+                              >
+                                <Instagram className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => handleShare(e, job, 'gmail')}
+                                className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-gray-700 rounded-full transition-colors"
+                                title="Share via Gmail"
+                                data-testid={`share-gmail-${job.id}`}
+                              >
+                                <Mail className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </button>
+                            </div>
+
+                            {/* Right Side: Action Buttons */}
+                            <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2 flex-1">
+                              {/* Applied Status - moved to left */}
+                              {isApplied && (
+                                <div className="flex items-center space-x-1">
+                                  <CheckCircle className="w-3 h-3 text-green-600" />
+                                  <span className="text-xs text-green-600 font-medium">Applied</span>
+                                </div>
+                              )}
+
+                              {/* View Details Button */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleJobClick(job.id);
+                                }}
+                                className="text-xs h-6 sm:h-7 px-1 sm:px-2"
+                                data-testid={`view-details-${job.id}`}
+                              >
+                                <Eye className="w-3 h-3 mr-1" />
+                                View Details
+                              </Button>
+
+                              {/* Apply Button - placed between View Details and Experience Badge */}
+                              {!isApplied && !isExpired && (
+                                <Button
+                                  size="sm"
+                                  onClick={(e) => handleApplyJob(e, job)}
+                                  className="bg-blue-600 hover:bg-blue-700 text-xs h-6 sm:h-7 px-1 sm:px-2"
+                                  data-testid={`apply-now-${job.id}`}
+                                >
+                                  Apply Now
+                                </Button>
+                              )}
+
+                              {/* Expired Status */}
+                              {isExpired && (
+                                <span className="text-xs text-gray-500">Expired</span>
+                              )}
+
+                              {/* Experience Badge */}
+                              <Badge className={`${getExperienceBadgeColor(job.experienceLevel)} px-1 sm:px-2 py-0.5 sm:py-1 text-xs font-medium`}>
+                                {job.experienceLevel === 'fresher' ? 'Fresher' : 'Experienced'}
+                              </Badge>
+
+                              {/* Delete Button */}
+                              {!isExpired && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => handleDeleteJob(e, job.id)}
+                                  className="text-xs h-6 sm:h-7 px-1 sm:px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
+                                  data-testid={`delete-job-${job.id}`}
+                                  title="Delete Job"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+      <Footer />
+    </div>
+  );
 }
