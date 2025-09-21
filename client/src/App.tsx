@@ -84,22 +84,23 @@ function Router() {
       console.log('🛣️ Window pathname:', window.location.pathname);
       
       let isLoggedIn = false;
+      let userData = null;
+      
       try {
         const userString = localStorage.getItem('user');
-        isLoggedIn = userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '';
-        
-        // Validate the user data is actually parseable JSON
-        if (isLoggedIn && userString) {
-          const parsed = JSON.parse(userString);
-          isLoggedIn = parsed && typeof parsed === 'object' && parsed.id;
+        if (userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '') {
+          userData = JSON.parse(userString);
+          isLoggedIn = userData && typeof userData === 'object' && userData.id;
         }
       } catch (error) {
         console.error('Error parsing user data from localStorage:', error);
         localStorage.removeItem('user');
         isLoggedIn = false;
+        userData = null;
       }
       
       console.log('🔐 User logged in:', isLoggedIn);
+      console.log('🔐 User data:', userData);
 
       // For production deployment - always show login first for unauthenticated users
       if (!isLoggedIn) {
