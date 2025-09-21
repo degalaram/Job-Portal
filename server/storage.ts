@@ -64,6 +64,7 @@ export interface IStorage {
   // Applications
   createApplication(application: InsertApplication): Promise<Application>;
   getUserApplications(userId: string): Promise<(Application & { job: Job & { company: Company } })[]>;
+  getApplications(): Promise<Application[]>;
   deleteApplication(id: string): Promise<void>;
 
   // Courses
@@ -905,6 +906,10 @@ export class MemStorage implements IStorage {
       if (!company) return null;
       return { ...app, job: { ...job, company } };
     }).filter(app => app !== null) as (Application & { job: Job & { company: Company } })[];
+  }
+
+  async getApplications(): Promise<Application[]> {
+    return Array.from(this.applications.values());
   }
 
   async deleteApplication(id: string): Promise<void> {
