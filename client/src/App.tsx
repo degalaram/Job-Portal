@@ -79,50 +79,57 @@ function Router() {
 
   // Handle authentication and routing properly
   useEffect(() => {
-    try {
-      console.log('🛣️ Current location:', location);
-      console.log('🛣️ Window pathname:', window.location.pathname);
-      
-      let isLoggedIn = false;
-      let userData = null;
-      
+    // Add a small delay to ensure all modules are loaded
+    const handleRouting = () => {
       try {
-        const userString = localStorage.getItem('user');
-        if (userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '') {
-          userData = JSON.parse(userString);
-          isLoggedIn = userData && typeof userData === 'object' && userData.id;
+        console.log('🛣️ Current location:', location);
+        console.log('🛣️ Window pathname:', window.location.pathname);
+        
+        let isLoggedIn = false;
+        let userData = null;
+        
+        try {
+          const userString = localStorage.getItem('user');
+          if (userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '') {
+            userData = JSON.parse(userString);
+            isLoggedIn = userData && typeof userData === 'object' && userData.id;
+          }
+        } catch (error) {
+          console.error('Error parsing user data from localStorage:', error);
+          localStorage.removeItem('user');
+          isLoggedIn = false;
+          userData = null;
+        }
+        
+        console.log('🔐 User logged in:', isLoggedIn);
+        console.log('🔐 User data:', userData);
+
+        // For production deployment - always show login first for unauthenticated users
+        if (!isLoggedIn) {
+          // If user is not logged in and not on login/signup pages, redirect to login
+          if (location !== '/login' && location !== '/signup') {
+            console.log('🛣️ Redirecting unauthenticated user to /login');
+            navigate('/login');
+          }
+        } else {
+          // If user is logged in and on root or login page, redirect to jobs
+          if (location === '/' || location === '/login') {
+            console.log('🛣️ Redirecting authenticated user to /jobs');
+            navigate('/jobs');
+          }
         }
       } catch (error) {
-        console.error('Error parsing user data from localStorage:', error);
-        localStorage.removeItem('user');
-        isLoggedIn = false;
-        userData = null;
-      }
-      
-      console.log('🔐 User logged in:', isLoggedIn);
-      console.log('🔐 User data:', userData);
-
-      // For production deployment - always show login first for unauthenticated users
-      if (!isLoggedIn) {
-        // If user is not logged in and not on login/signup pages, redirect to login
+        console.error('Error in router navigation logic:', error);
+        // Fallback to login page on any error
         if (location !== '/login' && location !== '/signup') {
-          console.log('🛣️ Redirecting unauthenticated user to /login');
           navigate('/login');
         }
-      } else {
-        // If user is logged in and on root or login page, redirect to jobs
-        if (location === '/' || location === '/login') {
-          console.log('🛣️ Redirecting authenticated user to /jobs');
-          navigate('/jobs');
-        }
       }
-    } catch (error) {
-      console.error('Error in router navigation logic:', error);
-      // Fallback to login page on any error
-      if (location !== '/login' && location !== '/signup') {
-        navigate('/login');
-      }
-    }
+    };
+
+    // Small delay to ensure all dependencies are loaded
+    const timeoutId = setTimeout(handleRouting, 100);
+    return () => clearTimeout(timeoutId);
   }, [location, navigate]);
 
   return (
