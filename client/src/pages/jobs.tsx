@@ -360,7 +360,9 @@ export default function Jobs() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, jobId) => {
+      // Immediately add to applied jobs for instant UI update
+      setAppliedJobs(prev => [...prev, jobId]);
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       toast({
         title: 'Application submitted!',
@@ -371,6 +373,36 @@ export default function Jobs() {
       toast({
         title: 'Application failed',
         description: error.message || 'Failed to submit application',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Remove application mutation
+  const removeApplicationMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      // Find the application for this job and user
+      const application = applications.find((app: any) => app.jobId === jobId && app.userId === user?.id);
+      if (!application) {
+        throw new Error('Application not found');
+      }
+      
+      const response = await apiRequest('DELETE', `/api/applications/${application.id}`);
+      return response.json();
+    },
+    onSuccess: (data, jobId) => {
+      // Immediately remove from applied jobs for instant UI update
+      setAppliedJobs(prev => prev.filter(id => id !== jobId));
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      toast({
+        title: 'Application removed',
+        description: 'Your job application has been removed successfully.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Remove failed',
+        description: error.message || 'Failed to remove application',
         variant: 'destructive',
       });
     },
@@ -412,7 +444,15 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // CRITICAL FIX: Immediately clear applied status for this job
+      // Immediately remove job from the jobs list in the cache
+      queryClient.setQueryData(['jobs', user?.id], (oldJobs: any) => {
+        if (Array.isArray(oldJobs)) {
+          return oldJobs.filter(job => job.id !== variables.jobId);
+        }
+        return oldJobs;
+      });
+      
+      // Clear applied status for this job
       setAppliedJobs(prev => {
         const updated = prev.filter(id => id !== variables.jobId);
         console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
@@ -421,7 +461,6 @@ export default function Jobs() {
       
       // Force immediate cache invalidation and refetch - clear all related caches
       queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.removeQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
@@ -434,15 +473,9 @@ export default function Jobs() {
         return oldData;
       });
       
-      // Small delay to ensure server has processed the deletion
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-        refetch();
-      }, 100);
-      
       toast({
         title: 'Job deleted successfully',
-        description: 'The job has been moved to deleted posts and is no longer available for application.',
+        description: 'The job has been moved to deleted posts and is no longer available.',
       });
     },
     onError: (error: any) => {
@@ -541,14 +574,21 @@ export default function Jobs() {
       return;
     }
 
-    // If job has an apply URL, open it in a new tab
-    if (job.applyUrl) {
-      window.open(job.applyUrl, '_blank');
-      // Still track the application internally
-      applyMutation.mutate(job.id);
+    const isApplied = appliedJobs.includes(job.id);
+    
+    if (isApplied) {
+      // Remove application
+      removeApplicationMutation.mutate(job.id);
     } else {
-      // Fallback to internal application tracking
-      applyMutation.mutate(job.id);
+      // Apply for job
+      if (job.applyUrl) {
+        window.open(job.applyUrl, '_blank');
+        // Still track the application internally
+        applyMutation.mutate(job.id);
+      } else {
+        // Fallback to internal application tracking
+        applyMutation.mutate(job.id);
+      }
     }
   };
 
@@ -867,20 +907,19 @@ export default function Jobs() {
                                 View Details
                               </Button>
 
-                              {/* Apply Button OR Applied Status - placed between View Details and Experience Badge */}
-                              {isApplied ? (
-                                <div className="flex items-center space-x-1">
-                                  <CheckCircle className="w-3 h-3 text-green-600" />
-                                  <span className="text-xs text-green-600 font-medium">Applied</span>
-                                </div>
-                              ) : !isExpired ? (
+                              {/* Apply Button - placed between View Details and Experience Badge */}
+                              {!isExpired ? (
                                 <Button
                                   size="sm"
                                   onClick={(e) => handleApplyJob(e, job)}
-                                  className="bg-blue-600 hover:bg-blue-700 text-xs h-6 sm:h-7 px-1 sm:px-2"
+                                  className={`text-xs h-6 sm:h-7 px-1 sm:px-2 ${
+                                    isApplied 
+                                      ? "bg-green-600 hover:bg-green-700" 
+                                      : "bg-blue-600 hover:bg-blue-700"
+                                  }`}
                                   data-testid={`apply-now-${job.id}`}
                                 >
-                                  Apply Now
+                                  {isApplied ? "Applied" : "Apply Now"}
                                 </Button>
                               ) : (
                                 <span className="text-xs text-gray-500">Expired</span>
