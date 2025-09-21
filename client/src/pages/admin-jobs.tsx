@@ -127,6 +127,16 @@ export default function AdminJobs() {
   // Always call hooks at the top level - BEFORE any conditional returns
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ['companies'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/companies');
+      if (!response.ok) {
+        throw new Error('Failed to fetch companies');
+      }
+      return response.json();
+    },
+    enabled: isVerified,
+    staleTime: 30 * 1000,
+    refetchOnMount: true,
   });
 
   const analyzeJobMutation = useMutation({
