@@ -354,6 +354,33 @@ export default function Jobs() {
     }
   }, [applications, appliedJobs]);
 
+  // Effect to sync locally deleted jobs from localStorage on mount and user change
+  useEffect(() => {
+    if (user?.id) {
+      const storedDeletedJobs = getLocallyDeletedJobs();
+      if (storedDeletedJobs.size > 0) {
+        console.log(`Loading ${storedDeletedJobs.size} locally deleted jobs for user ${user.id}:`, [...storedDeletedJobs]);
+        setLocallyDeletedJobs(storedDeletedJobs);
+      }
+    }
+  }, [user?.id]);
+
+  // Effect to handle tab changes and ensure deleted jobs remain hidden
+  useEffect(() => {
+    if (user?.id && locallyDeletedJobs.size > 0) {
+      console.log(`Tab changed to ${activeTab}. Ensuring ${locallyDeletedJobs.size} deleted jobs remain hidden.`);
+      // Force a re-filter by updating the query cache
+      queryClient.setQueryData(['jobs', user.id], (oldJobs: any) => {
+        if (Array.isArray(oldJobs)) {
+          const filteredJobs = oldJobs.filter(job => !locallyDeletedJobs.has(job.id));
+          console.log(`Filtered out ${oldJobs.length - filteredJobs.length} deleted jobs from cache`);
+          return filteredJobs;
+        }
+        return oldJobs;
+      });
+    }
+  }, [activeTab, locallyDeletedJobs, user?.id, queryClient]);
+
   // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
   const applyMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -411,8 +438,24 @@ export default function Jobs() {
     },
   });
 
-  // Track deleted jobs locally to prevent them from showing again
-  const [locallyDeletedJobs, setLocallyDeletedJobs] = useState<Set<string>>(new Set());
+  // Track deleted jobs persistently in localStorage to prevent them from showing again
+  const getLocallyDeletedJobs = (): Set<string> => {
+    try {
+      const stored = localStorage.getItem(`deletedJobs_${user?.id}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  };
+
+  const [locallyDeletedJobs, setLocallyDeletedJobs] = useState<Set<string>>(() => getLocallyDeletedJobs());
+
+  // Persist deleted jobs to localStorage whenever it changes
+  useEffect(() => {
+    if (user?.id && locallyDeletedJobs.size > 0) {
+      localStorage.setItem(`deletedJobs_${user.id}`, JSON.stringify([...locallyDeletedJobs]));
+    }
+  }, [locallyDeletedJobs, user?.id]);
 
   const deleteJobMutation = useMutation({
     mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
@@ -451,8 +494,12 @@ export default function Jobs() {
       // Cancel any outgoing refetches to avoid optimistic updates being overwritten
       await queryClient.cancelQueries({ queryKey: ['jobs', userId] });
       
-      // Add to locally deleted jobs set immediately
-      setLocallyDeletedJobs(prev => new Set([...prev, jobId]));
+      // Add to locally deleted jobs set immediately and persist it
+      setLocallyDeletedJobs(prev => {
+        const newSet = new Set([...prev, jobId]);
+        localStorage.setItem(`deletedJobs_${userId}`, JSON.stringify([...newSet]));
+        return newSet;
+      });
       
       // Snapshot the previous value
       const previousJobs = queryClient.getQueryData(['jobs', userId]);
@@ -476,10 +523,14 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Ensure the job remains in the locally deleted set
-      setLocallyDeletedJobs(prev => new Set([...prev, variables.jobId]));
+      // Ensure the job remains in the locally deleted set and persist it
+      setLocallyDeletedJobs(prev => {
+        const newSet = new Set([...prev, variables.jobId]);
+        localStorage.setItem(`deletedJobs_${variables.userId}`, JSON.stringify([...newSet]));
+        return newSet;
+      });
       
-      // Force update the cache to exclude deleted job
+      // Force update all related queries to exclude deleted job
       queryClient.setQueryData(['jobs', variables.userId], (oldJobs: any) => {
         if (Array.isArray(oldJobs)) {
           return oldJobs.filter(job => job.id !== variables.jobId);
@@ -495,21 +546,27 @@ export default function Jobs() {
         return oldApps;
       });
       
-      // Only invalidate deleted posts query
+      // Invalidate and refetch all related queries to ensure consistency
+      queryClient.removeQueries({ queryKey: ['jobs', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', variables.userId] });
       
       toast({
         title: 'Job deleted successfully',
-        description: 'The job has been moved to deleted posts and is no longer available.',
+        description: 'The job has been permanently removed from your view.',
       });
     },
     onError: (error: any, variables, context) => {
       console.error('Delete job error:', error);
       
-      // Remove from locally deleted jobs on error
+      // Remove from locally deleted jobs on error and update localStorage
       setLocallyDeletedJobs(prev => {
         const newSet = new Set(prev);
         newSet.delete(variables.jobId);
+        if (newSet.size > 0) {
+          localStorage.setItem(`deletedJobs_${variables.userId}`, JSON.stringify([...newSet]));
+        } else {
+          localStorage.removeItem(`deletedJobs_${variables.userId}`);
+        }
         return newSet;
       });
       
@@ -523,9 +580,6 @@ export default function Jobs() {
         description: error.message || 'Failed to delete job',
         variant: 'destructive',
       });
-    },
-    onSettled: (data, error, variables, context) => {
-      // Don't refetch - let the local state handle filtering
     },
   });
 
@@ -567,8 +621,9 @@ export default function Jobs() {
   }
 
   const filteredJobs = Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
-    // First filter out locally deleted jobs
+    // CRITICAL: First and most important filter - never show locally deleted jobs
     if (locallyDeletedJobs.has(job.id)) {
+      console.log(`Filtering out locally deleted job: ${job.id} - ${job.title}`);
       return false;
     }
 
