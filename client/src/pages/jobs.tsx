@@ -419,17 +419,26 @@ export default function Jobs() {
         return updated;
       });
       
-      // Force immediate cache invalidation and refetch
+      // Force immediate cache invalidation and refetch - clear all related caches
       queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.removeQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      
+      // Optimistically update the cache to remove the applied status immediately
+      queryClient.setQueryData(['applications/user', user?.id], (oldData: any) => {
+        if (Array.isArray(oldData)) {
+          return oldData.filter(app => app.jobId !== variables.jobId);
+        }
+        return oldData;
+      });
       
       // Small delay to ensure server has processed the deletion
       setTimeout(() => {
         queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
         refetch();
-      }, 200);
+      }, 100);
       
       toast({
         title: 'Job deleted successfully',
@@ -843,11 +852,6 @@ export default function Jobs() {
 
                             {/* Right Side: Action Buttons */}
                             <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2 flex-1">
-                              {/* Experience Badge */}
-                              <Badge className={`${getExperienceBadgeColor(job.experienceLevel)} px-1 sm:px-2 py-0.5 sm:py-1 text-xs font-medium`}>
-                                {job.experienceLevel === 'fresher' ? 'Fresher' : 'Experienced'}
-                              </Badge>
-
                               {/* View Details Button */}
                               <Button
                                 variant="outline"
@@ -863,7 +867,7 @@ export default function Jobs() {
                                 View Details
                               </Button>
 
-                              {/* Apply Button or Applied Status */}
+                              {/* Apply Button OR Applied Status - placed between View Details and Experience Badge */}
                               {isApplied ? (
                                 <div className="flex items-center space-x-1">
                                   <CheckCircle className="w-3 h-3 text-green-600" />
@@ -881,6 +885,11 @@ export default function Jobs() {
                               ) : (
                                 <span className="text-xs text-gray-500">Expired</span>
                               )}
+
+                              {/* Experience Badge */}
+                              <Badge className={`${getExperienceBadgeColor(job.experienceLevel)} px-1 sm:px-2 py-0.5 sm:py-1 text-xs font-medium`}>
+                                {job.experienceLevel === 'fresher' ? 'Fresher' : 'Experienced'}
+                              </Badge>
 
                               {/* Delete Button */}
                               {!isExpired && (
