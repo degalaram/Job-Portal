@@ -196,6 +196,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const jobs = await storage.getJobs(filters);
       console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'} (after filtering deleted jobs)`);
+      
+      // Add cache-busting headers to ensure fresh data
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Last-Modified': new Date().toUTCString()
+      });
+      
       res.json(jobs);
     } catch (error) {
       console.error('Error fetching jobs:', error);
@@ -445,7 +454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Original job not found' });
       }
 
-      console.log(`[RESTORE] Verified job exists: ${job.title} at ${job.company.name}`);
+      console.log(`[RESTORE] Verified job exists: ${job.title}`);
 
       // Remove any existing applications for this job and user combination to reset apply status
       const userApplications = await storage.getUserApplications(deletedPost.userId);
@@ -462,18 +471,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[RESTORE] Removed application ${app.id} for job ${jobId}`);
       }
 
+      // Critical: Also clean up any additional application records
+      await storage.cleanupApplicationsForJob(jobId, deletedPost.userId);
+
       // Now restore the post (remove from deleted posts)
       const result = await storage.restoreDeletedPost(req.params.id);
       
       console.log(`[RESTORE] Successfully restored deleted post: ${req.params.id}`);
       console.log(`[RESTORE] Job ${jobId} should now be visible on main jobs page for user ${deletedPost.userId}`);
       
+      // Add response headers to prevent caching
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      
       res.json({ 
         message: 'Post restored successfully',
         jobId: jobId,
         userId: deletedPost.userId,
         applicationsRemoved: removedCount,
-        success: true
+        success: true,
+        timestamp: new Date().toISOString()
       });
     } catch (error) {
       console.error("[RESTORE] Error restoring deleted post:", error);
