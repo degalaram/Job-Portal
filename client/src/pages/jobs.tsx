@@ -444,62 +444,59 @@ export default function Jobs() {
         throw error;
       }
     },
-    onSuccess: (data, variables) => {
-      console.log('Delete job confirmed on server:', variables.jobId);
+    onMutate: async ({ jobId, userId }) => {
+      // Cancel any outgoing refetches to avoid optimistic updates being overwritten
+      await queryClient.cancelQueries({ queryKey: ['jobs', userId] });
       
-      // Immediately remove job from the jobs list in the cache
-      queryClient.setQueryData(['jobs', user?.id], (oldJobs: any) => {
+      // Snapshot the previous value
+      const previousJobs = queryClient.getQueryData(['jobs', userId]);
+      
+      // Optimistically remove the job from the UI immediately
+      queryClient.setQueryData(['jobs', userId], (oldJobs: any) => {
         if (Array.isArray(oldJobs)) {
-          const filteredJobs = oldJobs.filter(job => job.id !== variables.jobId);
-          console.log(`Removed job ${variables.jobId} from jobs cache. Remaining: ${filteredJobs.length}`);
+          const filteredJobs = oldJobs.filter(job => job.id !== jobId);
+          console.log(`Optimistically removed job ${jobId}. Remaining: ${filteredJobs.length}`);
           return filteredJobs;
         }
         return oldJobs;
       });
       
-      // Clear applied status for this job immediately
-      setAppliedJobs(prev => {
-        const updated = prev.filter(id => id !== variables.jobId);
-        console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
-        return updated;
-      });
+      // Optimistically remove from applied jobs
+      setAppliedJobs(prev => prev.filter(id => id !== jobId));
       
-      // Optimistically update applications cache to remove any application for this job
-      queryClient.setQueryData(['applications/user', user?.id], (oldData: any) => {
-        if (Array.isArray(oldData)) {
-          const filtered = oldData.filter(app => app.jobId !== variables.jobId);
-          console.log(`Removed applications for job ${variables.jobId}. Remaining applications: ${filtered.length}`);
-          return filtered;
-        }
-        return oldData;
-      });
+      // Return context object with the snapshotted value
+      return { previousJobs };
+    },
+    onSuccess: (data, variables) => {
+      console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Force complete cache cleanup and refetch
-      queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.removeQueries({ queryKey: ['jobs', user?.id] });
-      
-      // Trigger fresh data fetch after a brief delay to ensure backend is updated
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-        queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-        queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-        
-        // Force refetch to get updated data from server
-        refetch();
-      }, 100);
+      // Invalidate related queries to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       
       toast({
         title: 'Job deleted successfully',
         description: 'The job has been moved to deleted posts and is no longer available.',
       });
     },
-    onError: (error: any) => {
+    onError: (error: any, variables, context) => {
       console.error('Delete job error:', error);
+      
+      // Rollback optimistic update on error
+      if (context?.previousJobs) {
+        queryClient.setQueryData(['jobs', variables.userId], context.previousJobs);
+      }
+      
       toast({
         title: 'Delete failed',
         description: error.message || 'Failed to delete job',
         variant: 'destructive',
       });
+    },
+    onSettled: () => {
+      // Always refetch jobs after mutation settles
+      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
     },
   });
 
