@@ -237,6 +237,18 @@ export default function Jobs() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Track deleted jobs persistently in localStorage to prevent them from showing again
+  const getLocallyDeletedJobs = (): Set<string> => {
+    try {
+      const stored = localStorage.getItem(`deletedJobs_${user?.id}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  };
+
+  const [locallyDeletedJobs, setLocallyDeletedJobs] = useState<Set<string>>(() => getLocallyDeletedJobs());
+
   // Check if user is logged in
   useEffect(() => {
     const checkAuth = () => {
@@ -450,17 +462,7 @@ export default function Jobs() {
     },
   });
 
-  // Track deleted jobs persistently in localStorage to prevent them from showing again
-  const getLocallyDeletedJobs = (): Set<string> => {
-    try {
-      const stored = localStorage.getItem(`deletedJobs_${user?.id}`);
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  };
 
-  const [locallyDeletedJobs, setLocallyDeletedJobs] = useState<Set<string>>(() => getLocallyDeletedJobs());
 
   // Persist deleted jobs to localStorage whenever it changes
   useEffect(() => {
