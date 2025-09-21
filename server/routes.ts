@@ -252,14 +252,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ message: 'Job already deleted', success: true });
       }
 
-      // Remove any applications for this job by this user before soft deleting
-      console.log(`[DELETE JOB] Removing applications for job ${jobId} by user ${userId}`);
+      // Remove ALL applications for this job by this user before soft deleting
+      console.log(`[DELETE JOB] Removing ALL applications for job ${jobId} by user ${userId}`);
       const userApplications = await storage.getUserApplications(userId);
       const applicationsToRemove = userApplications.filter(app => app.jobId === jobId);
       
       for (const app of applicationsToRemove) {
         await storage.deleteApplication(app.id);
         console.log(`[DELETE JOB] Removed application ${app.id} for job ${jobId}`);
+      }
+      
+      // Also remove any other applications for this job by this user that might exist
+      const allApplications = await storage.getApplications();
+      const additionalAppsToRemove = allApplications.filter(app => 
+        app.jobId === jobId && app.userId === userId
+      );
+      
+      for (const app of additionalAppsToRemove) {
+        await storage.deleteApplication(app.id);
+        console.log(`[DELETE JOB] Removed additional application ${app.id} for job ${jobId}`);
       }
 
       // Use the storage's softDeleteJob method
