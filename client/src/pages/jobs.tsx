@@ -120,6 +120,7 @@ const Footer = () => {
     const companyLogos = {
       'accenture': 'https://logo.clearbit.com/accenture.com',
       'tcs': 'https://logo.clearbit.com/tcs.com',
+      'tata consultancy services': 'https://logo.clearbit.com/tcs.com',
       'tata consultancy': 'https://logo.clearbit.com/tcs.com',
       'infosys': 'https://logo.clearbit.com/infosys.com',
       'hcl': 'https://logo.clearbit.com/hcltech.com',
@@ -195,7 +196,11 @@ const Footer = () => {
     // Try to fetch logo from company website
     if (company.website && company.website.trim()) {
       try {
-        const domain = new URL(company.website).hostname.replace('www.', '');
+        let cleanWebsite = company.website.trim();
+        if (!cleanWebsite.startsWith('http')) {
+          cleanWebsite = `https://${cleanWebsite}`;
+        }
+        const domain = new URL(cleanWebsite).hostname.replace('www.', '');
         return `https://logo.clearbit.com/${domain}`;
       } catch (error) {
         console.log('Error parsing website URL:', error);
@@ -212,7 +217,8 @@ const Footer = () => {
       return `https://logo.clearbit.com/${cleanName}.com`;
     }
 
-    return null;
+    // Final fallback - return a placeholder or null
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(company.name)}&background=3B82F6&color=ffffff&size=128`;
   };
 
 
@@ -881,24 +887,25 @@ export default function Jobs() {
                           <div className="flex items-start space-x-3 flex-1">
                             {/* Left Company Logo */}
                             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
-                              {job.company.logo || getCompanyLogo(job.company) ? (
-                                <img 
-                                  src={job.company.logo || getCompanyLogo(job.company)!} 
-                                  alt={job.company.name}
-                                  className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
+                              <img 
+                                src={getCompanyLogo(job.company)} 
+                                alt={job.company.name}
+                                className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  // Fallback to UI Avatars if Clearbit fails
+                                  const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(job.company.name)}&background=3B82F6&color=ffffff&size=128&font-size=0.5`;
+                                  if (target.src !== fallbackUrl) {
+                                    target.src = fallbackUrl;
+                                  } else {
+                                    // If even UI Avatars fails, show letter avatar
                                     const parent = target.parentElement;
                                     if (parent) {
                                       parent.innerHTML = `<div class="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-sm sm:text-lg font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
                                     }
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                                  <span className="text-sm sm:text-lg font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
-                                </div>
-                              )}
+                                  }
+                                }}
+                              />
                             </div>
 
                             {/* Job Info */}
@@ -919,24 +926,25 @@ export default function Jobs() {
 
                           {/* Right Company Logo - Larger */}
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ml-4">
-                            {job.company.logo || getCompanyLogo(job.company) ? (
-                              <img 
-                                src={job.company.logo || getCompanyLogo(job.company)!} 
-                                alt={job.company.name}
-                                className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
+                            <img 
+                              src={getCompanyLogo(job.company)} 
+                              alt={job.company.name}
+                              className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain rounded-lg"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                // Fallback to UI Avatars if Clearbit fails
+                                const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(job.company.name)}&background=3B82F6&color=ffffff&size=128&font-size=0.5`;
+                                if (target.src !== fallbackUrl) {
+                                  target.src = fallbackUrl;
+                                } else {
+                                  // If even UI Avatars fails, show letter avatar
                                   const parent = target.parentElement;
                                   if (parent) {
                                     parent.innerHTML = `<div class="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center"><span class="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">${job.company.name.charAt(0).toUpperCase()}</span></div>`;
                                   }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-blue-100 rounded-xl flex items-center justify-center">
-                                <span className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">{job.company.name.charAt(0).toUpperCase()}</span>
-                              </div>
-                            )}
+                                }
+                              }}
+                            />
                           </div>
                         </div>
 
