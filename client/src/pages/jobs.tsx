@@ -194,7 +194,16 @@ export default function Jobs() {
       }
       const jobs = await response.json();
       console.log(`[FETCH] Received ${jobs.length} jobs for user ${user?.id}:`, jobs.map((j: any) => j.id));
-      return jobs;
+      
+      // CRITICAL: Ensure locally deleted jobs are filtered out
+      const locallyDeletedJobs = getLocallyDeletedJobs();
+      const filteredJobs = jobs.filter((job: any) => !locallyDeletedJobs.has(job.id));
+      
+      if (filteredJobs.length !== jobs.length) {
+        console.log(`[FETCH] Filtered out ${jobs.length - filteredJobs.length} locally deleted jobs`);
+      }
+      
+      return filteredJobs;
     },
     staleTime: 0, // Always consider data stale for immediate updates
     gcTime: 30 * 1000, // 30 seconds for faster updates
@@ -210,6 +219,30 @@ export default function Jobs() {
       refetch();
     }
   }, [refetch, isAuthChecked, user?.id]);
+
+  // Listen for page visibility changes to refresh when coming back from deleted posts
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isAuthChecked && user?.id) {
+        console.log('[JOBS] Page became visible, refreshing jobs data');
+        // Clear localStorage cache and refetch
+        const deletedJobsKey = `deletedJobs_${user.id}`;
+        const storedDeleted = localStorage.getItem(deletedJobsKey);
+        if (storedDeleted) {
+          try {
+            const deletedJobs = JSON.parse(storedDeleted);
+            setLocallyDeletedJobs(new Set(deletedJobs));
+          } catch (error) {
+            console.log('Error parsing deleted jobs from localStorage:', error);
+          }
+        }
+        refetch();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isAuthChecked, user?.id, refetch]);
 
   const { data: applications = [] } = useQuery({
     queryKey: ['applications/user', user?.id],
