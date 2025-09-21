@@ -269,12 +269,15 @@ export default function Jobs() {
   const { data: allJobs = [], isLoading, error: jobsError, refetch } = useQuery({
     queryKey: ['jobs', user?.id],
     queryFn: async () => {
+      console.log(`[FETCH] Fetching jobs for user ${user?.id}`);
       const response = await apiRequest('GET', '/api/jobs', null, {
         'user-id': user?.id || ''
       });
+      if (!response.ok) {
+        throw new Error('Failed to fetch jobs');
+      }
       const jobs = await response.json();
-      // Ensure we get a fresh list that excludes deleted jobs for this user
-      console.log(`Received ${jobs.length} jobs for user ${user?.id}`);
+      console.log(`[FETCH] Received ${jobs.length} jobs for user ${user?.id}:`, jobs.map((j: any) => j.id));
       return jobs;
     },
     staleTime: 0, // Always consider data stale for immediate updates
@@ -447,31 +450,43 @@ export default function Jobs() {
       // Immediately remove job from the jobs list in the cache
       queryClient.setQueryData(['jobs', user?.id], (oldJobs: any) => {
         if (Array.isArray(oldJobs)) {
-          return oldJobs.filter(job => job.id !== variables.jobId);
+          const filteredJobs = oldJobs.filter(job => job.id !== variables.jobId);
+          console.log(`Removed job ${variables.jobId} from jobs cache. Remaining: ${filteredJobs.length}`);
+          return filteredJobs;
         }
         return oldJobs;
       });
       
-      // Clear applied status for this job
+      // Clear applied status for this job immediately
       setAppliedJobs(prev => {
         const updated = prev.filter(id => id !== variables.jobId);
         console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
         return updated;
       });
       
-      // Force immediate cache invalidation and refetch - clear all related caches
-      queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      
-      // Optimistically update the cache to remove the applied status immediately
+      // Optimistically update applications cache to remove any application for this job
       queryClient.setQueryData(['applications/user', user?.id], (oldData: any) => {
         if (Array.isArray(oldData)) {
-          return oldData.filter(app => app.jobId !== variables.jobId);
+          const filtered = oldData.filter(app => app.jobId !== variables.jobId);
+          console.log(`Removed applications for job ${variables.jobId}. Remaining applications: ${filtered.length}`);
+          return filtered;
         }
         return oldData;
       });
+      
+      // Force complete cache cleanup and refetch
+      queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.removeQueries({ queryKey: ['jobs', user?.id] });
+      
+      // Trigger fresh data fetch after a brief delay to ensure backend is updated
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+        queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+        queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+        
+        // Force refetch to get updated data from server
+        refetch();
+      }, 100);
       
       toast({
         title: 'Job deleted successfully',
