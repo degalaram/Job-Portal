@@ -326,8 +326,30 @@ export default function Jobs() {
     if (isAuthChecked && user?.id) {
       // Force refresh of applications when jobs data changes
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      
+      // Also ensure we get fresh applications data
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      }, 100);
     }
   }, [allJobs, isAuthChecked, user?.id, queryClient]);
+
+  // Effect to ensure applied jobs state is always in sync
+  useEffect(() => {
+    if (Array.isArray(applications) && applications.length >= 0) {
+      const currentAppliedIds = applications.map((app: any) => app.jobId);
+      
+      // Only update if there's a real difference
+      const hasChanged = appliedJobs.length !== currentAppliedIds.length || 
+        appliedJobs.some(id => !currentAppliedIds.includes(id)) ||
+        currentAppliedIds.some(id => !appliedJobs.includes(id));
+        
+      if (hasChanged) {
+        console.log('Syncing applied jobs state:', currentAppliedIds);
+        setAppliedJobs(currentAppliedIds);
+      }
+    }
+  }, [applications, appliedJobs]);
 
   // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
   const applyMutation = useMutation({
@@ -390,27 +412,28 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Immediately clear applied status for this job - CRITICAL FIX
+      // CRITICAL FIX: Immediately clear applied status for this job
       setAppliedJobs(prev => {
         const updated = prev.filter(id => id !== variables.jobId);
         console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
         return updated;
       });
       
-      // Force immediate refetch of applications to clear applied status
+      // Force immediate cache invalidation and refetch
+      queryClient.removeQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      
-      // Force immediate refetch of jobs to get updated list
-      refetch();
-      
-      // Invalidate other related queries
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       
+      // Small delay to ensure server has processed the deletion
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+        refetch();
+      }, 200);
+      
       toast({
         title: 'Job deleted successfully',
-        description: 'The job has been moved to deleted posts and can be restored within 5 days.',
+        description: 'The job has been moved to deleted posts and is no longer available for application.',
       });
     },
     onError: (error: any) => {
