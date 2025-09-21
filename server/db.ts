@@ -32,3 +32,15 @@ export const db = drizzle(queryClient, { schema: {
   contacts,
   courses,
 } });
+
+// Test database connection
+export async function testDbConnection() {
+  try {
+    await queryClient`SELECT 1`;
+    console.log('✅ Database connection successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
+    return false;
+  }
+}
