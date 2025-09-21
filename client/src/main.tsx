@@ -14,6 +14,15 @@ if (import.meta.hot) {
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
   console.error('Full error details:', event);
+  
+  // Check for specific errors and handle them
+  if (event.reason && event.reason.message && event.reason.message.includes('before initialization')) {
+    console.error('Initialization error detected - attempting reload');
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
+  }
+  
   // Prevent the error from being logged to console as unhandled
   event.preventDefault();
 });
@@ -26,6 +35,14 @@ window.addEventListener('error', (event) => {
     lineno: event.lineno,
     colno: event.colno
   });
+  
+  // Check for reference errors
+  if (event.message && event.message.includes('before initialization')) {
+    console.error('Reference error detected - attempting reload');
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
+  }
 });
 
 // Debug environment info
