@@ -14,6 +14,17 @@ const app = express();
 // Trust proxy for production deployments
 app.set('trust proxy', 1);
 
+// Add basic error handling
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 // Enhanced CORS configuration for production
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
@@ -113,6 +124,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Test database connection first
+  const { testDbConnection } = await import('./db');
+  const dbConnected = await testDbConnection();
+  
+  if (!dbConnected) {
+    console.error('Failed to connect to database. Please check your DATABASE_URL environment variable.');
+    process.exit(1);
+  }
+
   const server = await registerRoutes(app);
 
   // Global error handler
@@ -187,8 +207,13 @@ app.use((req, res, next) => {
   server.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${port}`);
     console.log(`🔗 Server accessible at http://0.0.0.0:${port}`);
+    console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  }).on('error', (err) => {
+    console.error('Server failed to start:', err);
+    process.exit(1);
   });
 })().catch(err => {
   console.error('Failed to start server:', err);
+  console.error('Error details:', err.message);
   process.exit(1);
 });
