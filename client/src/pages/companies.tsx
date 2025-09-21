@@ -35,7 +35,7 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
         ...data,
         logo: logoUrl || data.logo
       };
-      
+
       const response = await apiRequest('POST', '/api/companies', updatedData);
       if (!response.ok) {
         const errorText = await response.text();
@@ -48,12 +48,12 @@ function AddCompanyDialog({ children }: { children: React.ReactNode }) {
         title: 'Company added successfully',
         description: 'The company has been added with logo analysis.',
       });
-      
+
       // Immediately update the cache
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
         return [...(oldData || []), newCompany];
       });
-      
+
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setOpen(false);
       setFormData({
@@ -231,32 +231,32 @@ function EditCompanyDialog({ company, children }: { company: Company; children: 
         ...data,
         logo: logoUrl || '' // Force new logo or empty string, don't use old logo
       };
-      
+
       console.log('Updating company with data:', updatedData);
       console.log('Generated logo URL:', logoUrl);
       const response = await apiRequest('PUT', `/api/companies/${company.id}`, updatedData);
-      
+
       // apiRequest already handles errors and throws them, so if we get here, response is ok
       return response.json();
     },
     onSuccess: (result) => {
       console.log('Company update successful:', result);
-      
+
       // Immediately update the cache
       queryClient.setQueryData(['companies'], (oldData: Company[]) => {
         return (oldData || []).map((c: Company) => 
           c.id === company.id ? { ...c, ...result.company || result } : c
         );
       });
-      
+
       toast({
         title: 'Company updated successfully',
         description: `${formData.name} has been updated with logo analysis.`,
       });
-      
+
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setOpen(false);
-      
+
       // Reset form data to prevent stale data
       setFormData({
         name: '',
@@ -539,28 +539,27 @@ export default function Companies() {
                 {/* Company Logo and Basic Info */}
                 <div className="flex items-start space-x-2 sm:space-x-3 md:space-x-4 mb-3 sm:mb-4">
                   {/* Company Logo */}
-                  <div className="flex-shrink-0">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
-                      {company.logo || getCompanyLogo(company) ? (
-                        <img 
-                          src={company.logo || getCompanyLogo(company)!} 
-                          alt={company.name}
-                          className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-white border-2 rounded-lg flex items-center justify-center shadow-sm">
+                      <img 
+                        src={getCompanyLogo(company)} 
+                        alt={company.name}
+                        className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 object-contain rounded"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          // Fallback to UI Avatars if Clearbit fails
+                          const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(company.name)}&background=3B82F6&color=ffffff&size=128&font-size=0.5`;
+                          if (target.src !== fallbackUrl) {
+                            target.src = fallbackUrl;
+                          } else {
+                            // If even UI Avatars fails, show letter avatar
                             const parent = target.parentElement;
                             if (parent) {
                               parent.innerHTML = `<div class="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center"><span class="text-xs sm:text-sm md:text-lg font-bold text-blue-600">${company.name.charAt(0).toUpperCase()}</span></div>`;
                             }
-                          }}
-                        />
-                      ) : (
-                        <div className="w-6 h-6 sm:w-8 sm:h-8 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <span className="text-xs sm:text-sm md:text-lg font-bold text-blue-600">{company.name.charAt(0).toUpperCase()}</span>
-                        </div>
-                      )}
+                          }
+                        }}
+                      />
                     </div>
-                  </div>
 
                   {/* Company Info */}
                   <div className="flex-1 min-w-0">
