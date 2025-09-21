@@ -261,17 +261,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.deleteApplication(app.id);
         console.log(`[DELETE JOB] Removed application ${app.id} for job ${jobId}`);
       }
-      
-      // Also remove any other applications for this job by this user that might exist
-      const allApplications = await storage.getApplications();
-      const additionalAppsToRemove = allApplications.filter(app => 
-        app.jobId === jobId && app.userId === userId
-      );
-      
-      for (const app of additionalAppsToRemove) {
-        await storage.deleteApplication(app.id);
-        console.log(`[DELETE JOB] Removed additional application ${app.id} for job ${jobId}`);
-      }
 
       // Use the storage's softDeleteJob method
       const deletedPost = await storage.softDeleteJob(jobId, userId);
