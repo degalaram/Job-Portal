@@ -35,7 +35,7 @@ const getApiUrl = () => {
 // Enhanced API configuration for Replit environment
 function getAPIConfig() {
   return {
-    baseURL: getBaseURL(),
+    baseURL: getApiUrl(),
     timeout: 30000,
     retries: 3,
     retryDelay: 1000,
