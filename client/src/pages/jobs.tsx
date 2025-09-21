@@ -390,19 +390,22 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Immediately clear applied status for this job
+      // Immediately clear applied status for this job - CRITICAL FIX
       setAppliedJobs(prev => {
         const updated = prev.filter(id => id !== variables.jobId);
         console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
         return updated;
       });
       
+      // Force immediate refetch of applications to clear applied status
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      
       // Force immediate refetch of jobs to get updated list
       refetch();
       
-      // Invalidate and refetch all related queries for consistency
+      // Invalidate other related queries
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       
       toast({
