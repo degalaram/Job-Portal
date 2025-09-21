@@ -1,156 +1,91 @@
 import { QueryClient } from "@tanstack/react-query";
 
-// Determine API base URL based on environment - MUST match api.ts logic exactly
-const getApiBaseUrl = () => {
-  // PRIORITY 1: Use environment variable if available (Cloudflare Pages with VITE_API_BASE_URL)
-  if (import.meta.env.VITE_API_BASE_URL) {
-    console.log('Using VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
-    return import.meta.env.VITE_API_BASE_URL;
-  }
-
-  // PRIORITY 2: For Replit development environment
-  if (window.location.hostname.includes('replit.dev') || 
-      window.location.hostname.includes('repl.co') || 
-      window.location.hostname.includes('replit.app')) {
-    const replitUrl = `${window.location.protocol}//${window.location.hostname}`;
-    console.log('Using Replit URL:', replitUrl);
-    return replitUrl;
-  }
-
-  // PRIORITY 3: For localhost development
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    console.log('Using localhost URL');
-    return "http://localhost:5000";
-  }
-
-  // PRIORITY 4: For Cloudflare Pages and other production deployments
-  const productionUrl = "https://projectnow.onrender.com";
-  console.log('Using production URL:', productionUrl);
-  return productionUrl;
-};
-
-export const API_BASE_URL = getApiBaseUrl();
-
-// API request utility function with proper authentication support
-export async function apiRequest(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
-  url: string,
-  body?: any,
-  customHeaders?: Record<string, string>
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-  const options: RequestInit = {
-    method,
-    credentials: 'include', // CRITICAL: Required for session management
-    headers: {
-      'Content-Type': 'application/json',
-      ...customHeaders,
-    },
-    signal: controller.signal,
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
+const API_BASE_URL = (() => {
   try {
-    // Prepend API base URL if it doesn't already exist
-    const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-
-    const response = await fetch(fullUrl, options);
-    clearTimeout(timeoutId);
-
-    // Clone the response to avoid "body stream already read" error
-    const responseClone = response.clone();
-
-    if (!response.ok) {
-      // Safe error handling - try JSON first, fallback to text
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      try {
-        const errorData = await responseClone.json();
-        errorMessage = errorData.message || errorData.error || errorMessage;
-      } catch {
-        try {
-          const errorText = await responseClone.text();
-          errorMessage = errorText || errorMessage;
-        } catch {
-          // Use default error message if both fail
-        }
-      }
-      throw new Error(errorMessage);
+    // In production, use the same origin as the current page
+    if (import.meta.env.PROD) {
+      return window.location.origin;
     }
 
-    return response;
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out. Please check your internet connection.');
+    // In development on Replit
+    if (typeof window !== 'undefined' && window.location.hostname.includes('replit.dev')) {
+      const replitUrl = window.location.origin;
+      console.log('Using Replit URL:', replitUrl);
+      console.log('Using Replit API URL:', replitUrl);
+      return replitUrl;
     }
-    throw error;
+
+    // Default development fallback
+    return 'http://localhost:5000';
+  } catch (error) {
+    console.error('Error determining API base URL:', error);
+    return 'http://localhost:5000';
   }
-}
+})();
+
+export { API_BASE_URL };
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: async ({ queryKey }) => {
-        try {
-          const url = `${API_BASE_URL}/api/${queryKey.join("/")}`;
-          const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-          const response = await fetch(url, {
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(user.id && { 'user-id': user.id }),
-            },
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            let errorMessage = `HTTP error! status: ${response.status}`;
-            try {
-              const errorData = await response.json();
-              errorMessage = errorData.message || errorData.error || errorMessage;
-            } catch {
-              // Use default error message if response isn't JSON
-            }
-            throw new Error(errorMessage);
-          }
-
-          return response.json();
-        } catch (error: any) {
-          if (error.name === 'AbortError') {
-            console.error('Query timeout after 10 seconds:', queryKey.join('/'));
-            throw new Error('Request timed out. Please check your internet connection.');
-          }
-          console.error('Query failed:', error);
-          throw error; // Let the component handle the error properly
+      retry: (failureCount, error: any) => {
+        // Don't retry on 4xx errors
+        if (error?.status >= 400 && error?.status < 500) {
+          return false;
         }
+        return failureCount < 3;
       },
-      staleTime: 5 * 60 * 1000, // 5 minutes - reduce API calls
-      gcTime: 10 * 60 * 1000, // 10 minutes cache - keep data longer
-      refetchOnWindowFocus: false, // Reduce unnecessary API calls
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      refetchOnWindowFocus: false,
       refetchOnMount: true,
-      retry: (failureCount, error) => {
-        // Don't retry timeout errors or 4xx errors
-        if (error.message.includes('timeout') || error.message.includes('4')) return false;
-        return failureCount < 1; // Reduce retries for faster response
-      },
     },
     mutations: {
-      retry: false,
-      onError: (error) => {
-        console.error('Mutation failed:', error);
+      retry: (failureCount, error: any) => {
+        // Don't retry mutations on client errors
+        if (error?.status >= 400 && error?.status < 500) {
+          return false;
+        }
+        return failureCount < 2;
       },
     },
   },
 });
+
+export async function apiRequest(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
+  endpoint: string,
+  data?: any,
+  headers?: Record<string, string>
+): Promise<Response> {
+  try {
+    const url = `${API_BASE_URL}${endpoint}`;
+
+    const config: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      credentials: 'include',
+    };
+
+    if (data && method !== 'GET') {
+      config.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, config);
+
+    // Add response status to error for better error handling
+    if (!response.ok) {
+      const error = new Error(`HTTP ${response.status}: ${response.statusText}`) as any;
+      error.status = response.status;
+      error.response = response;
+      throw error;
+    }
+
+    return response;
+  } catch (error) {
+    console.error('API Request failed:', error);
+    throw error;
+  }
+}
