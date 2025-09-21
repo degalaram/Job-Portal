@@ -32,6 +32,19 @@ const getApiUrl = () => {
   return "https://projectnow.onrender.com";
 };
 
+// Enhanced API configuration for Replit environment
+function getAPIConfig() {
+  return {
+    baseURL: getBaseURL(),
+    timeout: 30000,
+    retries: 3,
+    retryDelay: 1000,
+  } as const;
+}
+
+const API_CONFIG = getAPIConfig();
+console.log('🔧 API Configuration:', API_CONFIG);
+
 const API_URL = getApiUrl();
 
 export async function apiRequest(method: string, endpoint: string, data?: any, customHeaders?: Record<string, string>) {
@@ -53,7 +66,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any, c
   }
 
   console.log(`API Request: ${method} ${url}`);
-  
+
   const response = await fetch(url, options);
 
   if (!response.ok) {
