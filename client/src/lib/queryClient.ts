@@ -2,17 +2,21 @@ import { QueryClient } from "@tanstack/react-query";
 
 const API_BASE_URL = (() => {
   try {
-    // In production, use the same origin as the current page
-    if (import.meta.env.PROD) {
-      return window.location.origin;
-    }
-
     // In development on Replit
-    if (typeof window !== 'undefined' && window.location.hostname.includes('replit.dev')) {
+    if (typeof window !== 'undefined' && (
+      window.location.hostname.includes('replit.dev') || 
+      window.location.hostname.includes('repl.co') ||
+      window.location.hostname.includes('replit.app')
+    )) {
       const replitUrl = window.location.origin;
       console.log('Using Replit URL:', replitUrl);
       console.log('Using Replit API URL:', replitUrl);
       return replitUrl;
+    }
+
+    // In production, use the same origin as the current page
+    if (import.meta.env.PROD) {
+      return window.location.origin;
     }
 
     // Default development fallback
