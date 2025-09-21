@@ -411,6 +411,9 @@ export default function Jobs() {
     },
   });
 
+  // Track deleted jobs locally to prevent them from showing again
+  const [locallyDeletedJobs, setLocallyDeletedJobs] = useState<Set<string>>(new Set());
+
   const deleteJobMutation = useMutation({
     mutationFn: async ({ jobId, userId }: { jobId: string; userId: string }) => {
       if (!userId) {
@@ -448,6 +451,9 @@ export default function Jobs() {
       // Cancel any outgoing refetches to avoid optimistic updates being overwritten
       await queryClient.cancelQueries({ queryKey: ['jobs', userId] });
       
+      // Add to locally deleted jobs set immediately
+      setLocallyDeletedJobs(prev => new Set([...prev, jobId]));
+      
       // Snapshot the previous value
       const previousJobs = queryClient.getQueryData(['jobs', userId]);
       
@@ -470,7 +476,10 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Ensure the job remains removed from cache after server confirmation
+      // Ensure the job remains in the locally deleted set
+      setLocallyDeletedJobs(prev => new Set([...prev, variables.jobId]));
+      
+      // Force update the cache to exclude deleted job
       queryClient.setQueryData(['jobs', variables.userId], (oldJobs: any) => {
         if (Array.isArray(oldJobs)) {
           return oldJobs.filter(job => job.id !== variables.jobId);
@@ -486,7 +495,7 @@ export default function Jobs() {
         return oldApps;
       });
       
-      // Only invalidate deleted posts query - don't refetch jobs to avoid showing deleted job
+      // Only invalidate deleted posts query
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', variables.userId] });
       
       toast({
@@ -496,6 +505,13 @@ export default function Jobs() {
     },
     onError: (error: any, variables, context) => {
       console.error('Delete job error:', error);
+      
+      // Remove from locally deleted jobs on error
+      setLocallyDeletedJobs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(variables.jobId);
+        return newSet;
+      });
       
       // Rollback optimistic update on error
       if (context?.previousJobs) {
@@ -509,10 +525,7 @@ export default function Jobs() {
       });
     },
     onSettled: (data, error, variables, context) => {
-      // Only invalidate if there was an error - don't refetch on success
-      if (error) {
-        queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      }
+      // Don't refetch - let the local state handle filtering
     },
   });
 
@@ -554,6 +567,11 @@ export default function Jobs() {
   }
 
   const filteredJobs = Array.isArray(allJobs) ? allJobs.filter((job: JobWithCompany) => {
+    // First filter out locally deleted jobs
+    if (locallyDeletedJobs.has(job.id)) {
+      return false;
+    }
+
     const matchesSearch = searchTerm === '' ||
       job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       job.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
