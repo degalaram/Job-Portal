@@ -110,13 +110,21 @@ const Footer = () => {
 
 
   const getCompanyLogo = (company: Company) => {
-    // First, check if company already has a logo URL stored
+    // Always use the enhanced logo analysis function for best results
+    const dynamicLogo = getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
+    
+    // Prefer dynamic logo if available, otherwise use stored logo
+    if (dynamicLogo && dynamicLogo.trim()) {
+      return dynamicLogo;
+    }
+    
+    // Fallback to stored logo or generate one based on company name
     if (company.logo && company.logo.trim()) {
       return company.logo;
     }
-
-    // Use the enhanced logo analysis function from utils
-    return getCompanyLogoFromUrl(company.website, company.linkedinUrl, company.name);
+    
+    // Final fallback to UI Avatars
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(company.name)}&background=3B82F6&color=ffffff&size=128&font-size=0.5`;
   };
 
 
@@ -186,8 +194,11 @@ export default function Jobs() {
     queryKey: ['jobs', user?.id],
     queryFn: async () => {
       console.log(`[FETCH] Fetching jobs for user ${user?.id}`);
-      const response = await apiRequest('GET', '/api/jobs', null, {
-        'user-id': user?.id || ''
+      
+      // Add timestamp to force fresh data
+      const response = await apiRequest('GET', `/api/jobs?_t=${Date.now()}`, null, {
+        'user-id': user?.id || '',
+        'cache-control': 'no-cache'
       });
       if (!response.ok) {
         throw new Error('Failed to fetch jobs');
@@ -206,11 +217,12 @@ export default function Jobs() {
       return filteredJobs;
     },
     staleTime: 0, // Always consider data stale for immediate updates
-    gcTime: 30 * 1000, // 30 seconds for faster updates
+    gcTime: 0, // No cache time to ensure fresh data
     refetchOnMount: true,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true, // Refetch when window regains focus (coming back from deleted posts)
     retry: 2,
     enabled: isAuthChecked && !!user?.id,
+    refetchInterval: false, // Disable automatic refetch interval
   });
 
   // Refetch jobs when component mounts or tab becomes active
