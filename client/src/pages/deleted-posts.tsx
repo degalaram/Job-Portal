@@ -111,37 +111,8 @@ export default function DeletedPosts() {
     onSuccess: (result) => {
       console.log('Restore success result:', result);
       
-      // Clear all related caches completely
-      queryClient.removeQueries({ queryKey: ['deleted-posts'] });
-      queryClient.removeQueries({ queryKey: ['jobs'] });
-      queryClient.removeQueries({ queryKey: ['applications'] });
-      
-      // Invalidate and refetch all related queries immediately
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      
-      // Force immediate refetch of critical data
-      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
-      
-      // Multiple delayed refetches to ensure data consistency
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-        queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
-      }, 500);
-      
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
-      }, 1000);
-      
-      // Clear localStorage cache if it exists
-      if (user?.id) {
+      // Clear localStorage cache first to ensure job shows up
+      if (user?.id && result.jobId) {
         const deletedJobsKey = `deletedJobs_${user.id}`;
         try {
           const storedDeleted = localStorage.getItem(deletedJobsKey);
@@ -158,6 +129,41 @@ export default function DeletedPosts() {
           console.log('Error updating localStorage cache:', error);
         }
       }
+      
+      // Clear all query caches to force fresh data
+      queryClient.clear();
+      
+      // Invalidate and refetch all related queries with proper keys
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      
+      // Force immediate refetch with specific user context
+      if (user?.id) {
+        queryClient.refetchQueries({ queryKey: ['jobs', user.id] });
+        queryClient.refetchQueries({ queryKey: ['applications/user', user.id] });
+        queryClient.refetchQueries({ queryKey: ['deleted-posts', user.id] });
+      }
+      
+      // Additional delayed refetches to ensure data consistency
+      setTimeout(() => {
+        if (user?.id) {
+          queryClient.refetchQueries({ queryKey: ['jobs', user.id] });
+          queryClient.refetchQueries({ queryKey: ['applications/user', user.id] });
+        }
+      }, 500);
+      
+      setTimeout(() => {
+        if (user?.id) {
+          queryClient.refetchQueries({ queryKey: ['jobs', user.id] });
+        }
+      }, 1000);
+      
+      // Refresh the entire page cache
+      setTimeout(() => {
+        queryClient.refetchQueries();
+      }, 1500);
       
       toast({
         title: 'Post restored successfully',
