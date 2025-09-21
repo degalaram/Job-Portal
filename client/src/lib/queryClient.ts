@@ -4,7 +4,7 @@ const API_BASE_URL = (() => {
   try {
     // In development on Replit
     if (typeof window !== 'undefined' && (
-      window.location.hostname.includes('replit.dev') || 
+      window.location.hostname.includes('replit.dev') ||
       window.location.hostname.includes('repl.co') ||
       window.location.hostname.includes('replit.app')
     )) {
@@ -29,31 +29,37 @@ const API_BASE_URL = (() => {
 
 export { API_BASE_URL };
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (failureCount, error: any) => {
-        // Don't retry on 4xx errors
-        if (error?.status >= 400 && error?.status < 500) {
-          return false;
-        }
-        return failureCount < 3;
+// Create a function to initialize the query client to avoid hoisting issues
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 1000 * 60 * 5, // 5 minutes
+        gcTime: 1000 * 60 * 10, // 10 minutes (renamed from cacheTime)
+        retry: (failureCount, error: any) => {
+          // Don't retry on 4xx errors except for 408, 429
+          if (error?.status >= 400 && error?.status < 500 && ![408, 429].includes(error.status)) {
+            return false;
+          }
+          // Retry up to 3 times for other errors
+          return failureCount < 3;
+        },
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
+        refetchOnWindowFocus: false, // Disable for Replit environment
+        refetchOnMount: true,
+        refetchOnReconnect: true,
+        networkMode: 'online', // Only run queries when online
       },
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      refetchOnWindowFocus: false,
-      refetchOnMount: true,
-    },
-    mutations: {
-      retry: (failureCount, error: any) => {
-        // Don't retry mutations on client errors
-        if (error?.status >= 400 && error?.status < 500) {
-          return false;
-        }
-        return failureCount < 2;
+      mutations: {
+        retry: 1,
+        networkMode: 'online',
       },
     },
-  },
-});
+  });
+}
+
+// Export the query client instance
+export const queryClient = createQueryClient();
 
 export async function apiRequest(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
