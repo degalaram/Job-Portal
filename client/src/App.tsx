@@ -79,27 +79,47 @@ function Router() {
 
   // Handle authentication and routing properly
   useEffect(() => {
-    console.log('🛣️ Current location:', location);
-    console.log('🛣️ Window pathname:', window.location.pathname);
-    
-    const userString = localStorage.getItem('user');
-    const isLoggedIn = userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '';
-    
-    console.log('🔐 User logged in:', isLoggedIn);
-    console.log('🔐 User data:', userString);
-
-    // For production deployment - always show login first for unauthenticated users
-    if (!isLoggedIn) {
-      // If user is not logged in and not on login/signup pages, redirect to login
-      if (location !== '/login' && location !== '/signup') {
-        console.log('🛣️ Redirecting unauthenticated user to /login');
-        navigate('/login');
+    try {
+      console.log('🛣️ Current location:', location);
+      console.log('🛣️ Window pathname:', window.location.pathname);
+      
+      let isLoggedIn = false;
+      try {
+        const userString = localStorage.getItem('user');
+        isLoggedIn = userString && userString !== 'null' && userString !== 'undefined' && userString.trim() !== '';
+        
+        // Validate the user data is actually parseable JSON
+        if (isLoggedIn && userString) {
+          const parsed = JSON.parse(userString);
+          isLoggedIn = parsed && typeof parsed === 'object' && parsed.id;
+        }
+      } catch (error) {
+        console.error('Error parsing user data from localStorage:', error);
+        localStorage.removeItem('user');
+        isLoggedIn = false;
       }
-    } else {
-      // If user is logged in and on root or login page, redirect to jobs
-      if (location === '/' || location === '/login') {
-        console.log('🛣️ Redirecting authenticated user to /jobs');
-        navigate('/jobs');
+      
+      console.log('🔐 User logged in:', isLoggedIn);
+
+      // For production deployment - always show login first for unauthenticated users
+      if (!isLoggedIn) {
+        // If user is not logged in and not on login/signup pages, redirect to login
+        if (location !== '/login' && location !== '/signup') {
+          console.log('🛣️ Redirecting unauthenticated user to /login');
+          navigate('/login');
+        }
+      } else {
+        // If user is logged in and on root or login page, redirect to jobs
+        if (location === '/' || location === '/login') {
+          console.log('🛣️ Redirecting authenticated user to /jobs');
+          navigate('/jobs');
+        }
+      }
+    } catch (error) {
+      console.error('Error in router navigation logic:', error);
+      // Fallback to login page on any error
+      if (location !== '/login' && location !== '/signup') {
+        navigate('/login');
       }
     }
   }, [location, navigate]);
