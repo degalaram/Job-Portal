@@ -111,6 +111,11 @@ export default function DeletedPosts() {
     onSuccess: (result) => {
       console.log('Restore success result:', result);
       
+      // Clear all related caches completely
+      queryClient.removeQueries({ queryKey: ['deleted-posts'] });
+      queryClient.removeQueries({ queryKey: ['jobs'] });
+      queryClient.removeQueries({ queryKey: ['applications'] });
+      
       // Invalidate and refetch all related queries immediately
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['/api/deleted-posts/user', user?.id] });
@@ -118,16 +123,41 @@ export default function DeletedPosts() {
       queryClient.invalidateQueries({ queryKey: ['/api/applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
       
       // Force immediate refetch of critical data
       queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
       queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['deleted-posts', user?.id] });
       
-      // Small delay then refetch again to ensure data consistency
+      // Multiple delayed refetches to ensure data consistency
       setTimeout(() => {
         queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
         queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
       }, 500);
+      
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
+      }, 1000);
+      
+      // Clear localStorage cache if it exists
+      if (user?.id) {
+        const deletedJobsKey = `deletedJobs_${user.id}`;
+        try {
+          const storedDeleted = localStorage.getItem(deletedJobsKey);
+          if (storedDeleted) {
+            const deletedJobs = JSON.parse(storedDeleted);
+            const updatedDeleted = deletedJobs.filter((jobId: string) => jobId !== result.jobId);
+            if (updatedDeleted.length > 0) {
+              localStorage.setItem(deletedJobsKey, JSON.stringify(updatedDeleted));
+            } else {
+              localStorage.removeItem(deletedJobsKey);
+            }
+          }
+        } catch (error) {
+          console.log('Error updating localStorage cache:', error);
+        }
+      }
       
       toast({
         title: 'Post restored successfully',
