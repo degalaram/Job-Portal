@@ -775,11 +775,17 @@ export class MemStorage implements IStorage {
     if (filters?.userId) {
       const deletedJobIds = new Set<string>();
       this.deletedPosts.forEach(post => {
-        if (post.userId === filters.userId && post.originalId && post.type === 'job') {
-          deletedJobIds.add(post.originalId);
+        // Check for jobs deleted by this user - support both jobId and originalId fields
+        if (post.userId === filters.userId && (post.jobId || post.originalId)) {
+          const jobIdToDelete = post.jobId || post.originalId;
+          deletedJobIds.add(jobIdToDelete);
+          console.log(`[FILTER] Excluding job ${jobIdToDelete} for user ${filters.userId} - found in deleted posts`);
         }
       });
+      
+      console.log(`[FILTER] User ${filters.userId} has ${deletedJobIds.size} deleted jobs:`, Array.from(deletedJobIds));
       jobs = jobs.filter(job => !deletedJobIds.has(job.id));
+      console.log(`[FILTER] After filtering deleted jobs: ${jobs.length} jobs remaining`);
     }
 
     if (filters?.experienceLevel) {
@@ -1197,20 +1203,31 @@ export class MemStorage implements IStorage {
       throw new Error('Job not found');
     }
 
+    // Check if already deleted by this user
+    const existingDeleted = Array.from(this.deletedPosts.values()).find(
+      post => post.userId === userId && (post.jobId === jobId || post.originalId === jobId)
+    );
+    
+    if (existingDeleted) {
+      console.log(`Job ${jobId} already soft deleted for user ${userId}`);
+      return existingDeleted;
+    }
+
     // Create deleted post entry with complete job and company data
     const deletedPost = {
       id: randomUUID(),
       userId: userId,
       jobId: jobId,
-      applicationId: null, // Will be filled when application is created
+      originalId: jobId, // Set originalId for consistent filtering
+      applicationId: null,
+      type: 'job', // Set type for consistent filtering
       job: jobWithCompany, // This includes company data
       deletedAt: new Date(),
     };
 
     this.deletedPosts.set(deletedPost.id, deletedPost);
 
-    // Don't actually remove the job from jobs list, just mark it in deleted posts
-    console.log(`Job ${jobId} soft deleted for user ${userId}`);
+    console.log(`[SOFT DELETE] Job ${jobId} soft deleted for user ${userId}. Deleted posts count: ${this.deletedPosts.size}`);
 
     return deletedPost;
   }
@@ -1584,6 +1601,19 @@ export class DbStorage implements IStorage {
 
   async deleteApplication(applicationId: string): Promise<void> {
     await db.delete(schema.applications).where(eq(schema.applications.id, applicationId));
+  }
+
+  async getApplications(): Promise<Application[]> {
+    return await db.select().from(schema.applications);
+  }
+
+  async cleanupApplicationsForJob(jobId: string, userId: string): Promise<void> {
+    await db.delete(schema.applications).where(
+      and(
+        eq(schema.applications.jobId, jobId),
+        eq(schema.applications.userId, userId)
+      )
+    );
   }
 
   // Course methods
