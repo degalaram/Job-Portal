@@ -417,39 +417,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Restore deleted post
   app.post("/api/deleted-posts/:id/restore", async (req, res) => {
     try {
-      console.log(`Restoring deleted post: ${req.params.id}`);
+      console.log(`[RESTORE] Starting restoration of deleted post: ${req.params.id}`);
 
       // Get the deleted post first to understand what we're restoring
       const deletedPosts = await storage.getDeletedPosts();
       const deletedPost = deletedPosts.find(post => post.id === req.params.id);
 
       if (!deletedPost) {
+        console.log(`[RESTORE] Deleted post not found: ${req.params.id}`);
         return res.status(404).json({ error: 'Deleted post not found' });
       }
 
-      console.log(`Found deleted post for user ${deletedPost.userId} and job ${deletedPost.jobId}`);
+      console.log(`[RESTORE] Found deleted post for user ${deletedPost.userId} and job ${deletedPost.jobId || deletedPost.originalId}`);
 
-      // If this is a MemStorage instance, we need to manually clean up applications
-      if (storage.constructor.name === 'MemStorage') {
-        // Remove any applications for this job and user combination
-        const userApplications = await storage.getUserApplications(deletedPost.userId);
-        const applicationsToRemove = userApplications.filter(app => app.job.id === deletedPost.jobId);
-
-        console.log(`Found ${applicationsToRemove.length} applications to remove for job ${deletedPost.jobId}`);
-
-        for (const app of applicationsToRemove) {
-          await storage.deleteApplication(app.id);
-          console.log(`Removed application ${app.id}`);
-        }
+      // Determine the actual job ID from the deleted post
+      const jobId = deletedPost.jobId || deletedPost.originalId;
+      
+      if (!jobId) {
+        console.log(`[RESTORE] No job ID found in deleted post: ${req.params.id}`);
+        return res.status(400).json({ error: 'No job ID found in deleted post' });
       }
 
-      // Now restore the post
+      // Verify the job exists in the main jobs collection
+      const job = await storage.getJobById(jobId);
+      if (!job) {
+        console.log(`[RESTORE] Original job not found: ${jobId}`);
+        return res.status(404).json({ error: 'Original job not found' });
+      }
+
+      console.log(`[RESTORE] Verified job exists: ${job.title} at ${job.company.name}`);
+
+      // Remove any existing applications for this job and user combination to reset apply status
+      const userApplications = await storage.getUserApplications(deletedPost.userId);
+      const applicationsToRemove = userApplications.filter(app => 
+        (app.jobId === jobId || app.job?.id === jobId)
+      );
+
+      console.log(`[RESTORE] Found ${applicationsToRemove.length} applications to remove for job ${jobId}`);
+
+      let removedCount = 0;
+      for (const app of applicationsToRemove) {
+        await storage.deleteApplication(app.id);
+        removedCount++;
+        console.log(`[RESTORE] Removed application ${app.id} for job ${jobId}`);
+      }
+
+      // Now restore the post (remove from deleted posts)
       const result = await storage.restoreDeletedPost(req.params.id);
-      console.log(`Successfully restored deleted post: ${req.params.id}`);
-      res.json(result);
+      
+      console.log(`[RESTORE] Successfully restored deleted post: ${req.params.id}`);
+      console.log(`[RESTORE] Job ${jobId} should now be visible on main jobs page for user ${deletedPost.userId}`);
+      
+      res.json({ 
+        message: 'Post restored successfully',
+        jobId: jobId,
+        userId: deletedPost.userId,
+        applicationsRemoved: removedCount,
+        success: true
+      });
     } catch (error) {
-      console.error("Error restoring deleted post:", error);
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      console.error("[RESTORE] Error restoring deleted post:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false
+      });
     }
   });
 
