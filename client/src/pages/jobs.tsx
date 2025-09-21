@@ -465,15 +465,29 @@ export default function Jobs() {
       setAppliedJobs(prev => prev.filter(id => id !== jobId));
       
       // Return context object with the snapshotted value
-      return { previousJobs };
+      return { previousJobs, jobId };
     },
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Invalidate related queries to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
-      queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
+      // Ensure the job remains removed from cache after server confirmation
+      queryClient.setQueryData(['jobs', variables.userId], (oldJobs: any) => {
+        if (Array.isArray(oldJobs)) {
+          return oldJobs.filter(job => job.id !== variables.jobId);
+        }
+        return oldJobs;
+      });
+      
+      // Remove from applications cache as well
+      queryClient.setQueryData(['applications/user', variables.userId], (oldApps: any) => {
+        if (Array.isArray(oldApps)) {
+          return oldApps.filter(app => app.jobId !== variables.jobId);
+        }
+        return oldApps;
+      });
+      
+      // Only invalidate deleted posts query - don't refetch jobs to avoid showing deleted job
+      queryClient.invalidateQueries({ queryKey: ['deleted-posts', variables.userId] });
       
       toast({
         title: 'Job deleted successfully',
@@ -494,9 +508,11 @@ export default function Jobs() {
         variant: 'destructive',
       });
     },
-    onSettled: () => {
-      // Always refetch jobs after mutation settles
-      queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+    onSettled: (data, error, variables, context) => {
+      // Only invalidate if there was an error - don't refetch on success
+      if (error) {
+        queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
+      }
     },
   });
 
