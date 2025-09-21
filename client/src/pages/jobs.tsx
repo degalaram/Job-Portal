@@ -381,13 +381,19 @@ export default function Jobs() {
     }
   }, [activeTab, locallyDeletedJobs, user?.id, queryClient]);
 
-  // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
+  // Application mutation
   const applyMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      if (!user?.id) {
+        throw new Error('User not logged in');
+      }
       const response = await apiRequest('POST', '/api/applications', {
-        userId: user?.id,
+        userId: user.id,
         jobId: jobId,
       });
+      if (!response.ok) {
+        throw new Error('Failed to submit application');
+      }
       return response.json();
     },
     onSuccess: (data, jobId) => {
@@ -411,13 +417,19 @@ export default function Jobs() {
   // Remove application mutation
   const removeApplicationMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      if (!user?.id) {
+        throw new Error('User not logged in');
+      }
       // Find the application for this job and user
-      const application = applications.find((app: any) => app.jobId === jobId && app.userId === user?.id);
+      const application = applications.find((app: any) => app.jobId === jobId && app.userId === user.id);
       if (!application) {
         throw new Error('Application not found');
       }
       
       const response = await apiRequest('DELETE', `/api/applications/${application.id}`);
+      if (!response.ok) {
+        throw new Error('Failed to remove application');
+      }
       return response.json();
     },
     onSuccess: (data, jobId) => {
