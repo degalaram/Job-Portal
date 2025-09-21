@@ -362,25 +362,30 @@ export default function Jobs() {
 
       console.log(`Attempting to delete job ${jobId} for user ${userId}`);
 
-      // Use the correct delete endpoint and send userId in the request body
-      const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId });
+      try {
+        // Use the correct delete endpoint and send userId in the request body
+        const response = await apiRequest('POST', `/api/jobs/${jobId}/delete`, { userId });
 
-      if (!response.ok) {
-        let errorMessage = 'Failed to delete job';
-        
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch {
-          errorMessage = `Server error: ${response.status}`;
+        if (!response.ok) {
+          let errorMessage = 'Failed to delete job';
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch {
+            errorMessage = `Server error: ${response.status}`;
+          }
+
+          throw new Error(errorMessage);
         }
 
-        throw new Error(errorMessage);
+        const result = await response.json();
+        console.log('Delete job success:', result);
+        return result;
+      } catch (error) {
+        console.error('Delete job API error:', error);
+        throw error;
       }
-
-      const result = await response.json();
-      console.log('Delete job success:', result);
-      return result;
     },
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
@@ -392,13 +397,8 @@ export default function Jobs() {
         return updated;
       });
       
-      // Update the query cache to remove the job from the list immediately
-      queryClient.setQueryData(['jobs', user?.id], (oldData: any[]) => {
-        if (!oldData) return oldData;
-        const filtered = oldData.filter((job: any) => job.id !== variables.jobId);
-        console.log(`Removed job ${variables.jobId} from jobs cache. Remaining jobs:`, filtered.length);
-        return filtered;
-      });
+      // Force immediate refetch of jobs to get updated list
+      refetch();
       
       // Invalidate and refetch all related queries for consistency
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
