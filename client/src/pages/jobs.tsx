@@ -272,10 +272,13 @@ export default function Jobs() {
       const response = await apiRequest('GET', '/api/jobs', null, {
         'user-id': user?.id || ''
       });
-      return response.json();
+      const jobs = await response.json();
+      // Ensure we get a fresh list that excludes deleted jobs for this user
+      console.log(`Received ${jobs.length} jobs for user ${user?.id}`);
+      return jobs;
     },
     staleTime: 0, // Always consider data stale for immediate updates
-    gcTime: 60 * 1000, // 1 minute
+    gcTime: 30 * 1000, // 30 seconds for faster updates
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     retry: 2,
@@ -317,6 +320,14 @@ export default function Jobs() {
       setAppliedJobs([]);
     }
   }, [applications]);
+
+  // Additional effect to handle real-time updates for applied jobs
+  useEffect(() => {
+    if (isAuthChecked && user?.id) {
+      // Force refresh of applications when jobs data changes
+      queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
+    }
+  }, [allJobs, isAuthChecked, user?.id, queryClient]);
 
   // Application mutation - MOVED TO TOP TO FIX HOOKS VIOLATION
   const applyMutation = useMutation({
@@ -374,16 +385,21 @@ export default function Jobs() {
     onSuccess: (data, variables) => {
       console.log('Delete job confirmed on server:', variables.jobId);
       
-      // Clear applied status immediately for this job
-      setAppliedJobs(prev => prev.filter(id => id !== variables.jobId));
+      // Immediately clear applied status for this job to update UI
+      setAppliedJobs(prev => {
+        const updated = prev.filter(id => id !== variables.jobId);
+        console.log(`Removed job ${variables.jobId} from applied jobs. Updated list:`, updated);
+        return updated;
+      });
       
-      // Invalidate specific queries to ensure fresh data
+      // Invalidate and refetch all related queries to ensure data consistency and remove job from main list
       queryClient.invalidateQueries({ queryKey: ['jobs', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['applications/user', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['deleted-posts', user?.id] });
       
-      // Refetch jobs immediately to ensure the deleted job is removed from UI
-      refetch();
+      // Force immediate refetch to update the jobs list and remove deleted job
+      queryClient.refetchQueries({ queryKey: ['jobs', user?.id] });
+      queryClient.refetchQueries({ queryKey: ['applications/user', user?.id] });
       
       toast({
         title: 'Job deleted successfully',
