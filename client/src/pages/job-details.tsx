@@ -34,7 +34,7 @@ export default function JobDetails() {
   const [, params] = useRoute('/jobs/:id');
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [hasApplied, setHasApplied] = useState(false);
   const [pendingApplication, setPendingApplication] = useState(false);
@@ -48,9 +48,30 @@ export default function JobDetails() {
   }, [navigate, user.id]);
 
 
-  const { data: job, isLoading } = useQuery<JobWithCompany>({
-    queryKey: ['jobs', params?.id],
+  const { data: job, isLoading, error } = useQuery<JobWithCompany>({
+    queryKey: ['/api/jobs', params?.id],
+    queryFn: async () => {
+      if (!params?.id) {
+        throw new Error('Job ID is required');
+      }
+      
+      console.log('Fetching job details for ID:', params.id);
+      const response = await apiRequest('GET', `/api/jobs/${params.id}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Failed to fetch job:', response.status, errorText);
+        throw new Error('Job not found');
+      }
+      
+      const data = await response.json();
+      console.log('Job details fetched successfully:', data);
+      return data;
+    },
     enabled: !!params?.id,
+    retry: 1,
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   const { data: applications = [] } = useQuery({
@@ -98,7 +119,7 @@ export default function JobDetails() {
         applyMutation.mutate();
         setPendingApplication(false);
         setShowSuccess(true);
-        
+
         // Hide success message after 3 seconds
         setTimeout(() => {
           setShowSuccess(false);
@@ -119,6 +140,29 @@ export default function JobDetails() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <p className="text-gray-600">Loading job details...</p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !isLoading) {
+    console.error('Job details error:', error);
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <Card>
+            <CardContent className="p-8 text-center">
+              <h3 className="text-lg font-medium text-red-600 mb-2">Job not found</h3>
+              <p className="text-gray-600 mb-4">The job you're looking for doesn't exist or has been removed.</p>
+              <div className="flex gap-4 justify-center">
+                <Button onClick={() => navigate('/jobs')}>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to Jobs
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -149,7 +193,7 @@ export default function JobDetails() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      
+
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Button */}
         <Button 
@@ -168,18 +212,18 @@ export default function JobDetails() {
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
                 <CardTitle className="text-2xl lg:text-3xl mb-4">{job.title}</CardTitle>
-                
+
                 <div className="space-y-3 mb-4">
                   <div className="flex items-center">
                     <Building className="w-5 h-5 mr-3 text-gray-500" />
                     <span className="text-lg font-medium">{job.company.name}</span>
                   </div>
-                  
+
                   <div className="flex items-center">
                     <MapPin className="w-5 h-5 mr-3 text-gray-500" />
                     <span>{job.location}</span>
                   </div>
-                  
+
                   <div className="flex items-center">
                     <DollarSign className="w-5 h-5 mr-3 text-gray-500" />
                     <span>{job.salary}</span>
@@ -197,7 +241,7 @@ export default function JobDetails() {
                   {isExpired && <Badge variant="destructive">Expired</Badge>}
                 </div>
               </div>
-              
+
               <div className="lg:ml-8 mt-4 lg:mt-0">
                 <div className="bg-gray-50 p-4 rounded-lg space-y-3">
                   <div className="flex items-center">
@@ -374,13 +418,13 @@ export default function JobDetails() {
                     <span className="hidden text-2xl font-semibold text-gray-600"></span>
                   </div>
                 </div>
-                
+
                 {job.company.description && (
                   <p className="text-sm text-gray-700">{job.company.description}</p>
                 )}
-                
+
                 <Separator />
-                
+
                 <div className="space-y-3">
                   {job.company.website && (
                     <Button 
@@ -394,7 +438,7 @@ export default function JobDetails() {
                       Visit Website
                     </Button>
                   )}
-                  
+
                   {job.company.linkedinUrl && (
                     <Button 
                       variant="outline" 
