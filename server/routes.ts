@@ -182,7 +182,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jobs routes
-  app.get('/api/jobs', async (req, res) => {
+  // Get single job by ID with company details
+  app.get('/api/jobs/:id', async (req, res) => {
+    try {
+      const userId = req.headers['user-id'] as string | undefined;
+      const jobId = req.params.id;
+
+      console.log(`[${new Date().toLocaleTimeString()}] [express] GET /api/jobs/${jobId} - User: ${userId}`);
+
+      if (!jobId) {
+        console.log('Job ID is missing');
+        return res.status(400).json({ error: 'Job ID is required' });
+      }
+
+      const job = await storage.getJob(jobId, userId);
+
+      if (!job) {
+        console.log(`Job not found: ${jobId} for user ${userId}`);
+        return res.status(404).json({ error: 'Job not found' });
+      }
+
+      // Ensure company data is included
+      if (!job.company) {
+        console.error(`Job ${jobId} missing company data`);
+        return res.status(500).json({ error: 'Job data incomplete' });
+      }
+
+      console.log(`Found job ${jobId} with company ${job.company.name} for user ${userId}`);
+      res.json(job);
+    } catch (error: any) {
+      console.error('Error fetching job details:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch job details' });
+    }
+  });
+
+  // Get all jobs (with optional user-specific filtering for deleted jobs)
+  app.get("/api/jobs", async (req, res) => {
     try {
       const userId = req.headers['user-id'] as string;
       console.log(`[${new Date().toLocaleTimeString()}] [express] GET /api/jobs - User: ${userId}`);
@@ -196,7 +231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const jobs = await storage.getJobs(filters);
       console.log(`Found ${jobs.length} jobs for user ${userId || 'anonymous'} (after filtering deleted jobs)`);
-      
+
       // Add cache-busting headers to ensure fresh data
       res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -204,25 +239,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'Expires': '0',
         'Last-Modified': new Date().toUTCString()
       });
-      
+
       res.json(jobs);
     } catch (error) {
       console.error('Error fetching jobs:', error);
       res.status(500).json({ error: 'Failed to fetch jobs' });
-    }
-  });
-
-  // Get single job
-  app.get('/api/jobs/:id', async (req, res) => {
-    try {
-      const job = await storage.getJobById(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
-      }
-      res.json(job);
-    } catch (error) {
-      console.error('Get job error:', error);
-      res.status(500).json({ error: 'Failed to get job' });
     }
   });
 
@@ -255,7 +276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingDeletedPost = userDeletedPosts.find(dp => 
         (dp.originalId === jobId || dp.jobId === jobId) && dp.userId === userId
       );
-      
+
       if (existingDeletedPost) {
         console.log(`[DELETE JOB] Job already deleted by user ${userId}`);
         return res.json({ message: 'Job already deleted', success: true });
@@ -265,9 +286,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DELETE JOB] Removing ALL applications for job ${jobId} by user ${userId}`);
       const userApplications = await storage.getUserApplications(userId);
       const applicationsToRemove = userApplications.filter(app => app.jobId === jobId);
-      
+
       console.log(`[DELETE JOB] Found ${applicationsToRemove.length} applications to remove for job ${jobId}`);
-      
+
       for (const app of applicationsToRemove) {
         await storage.deleteApplication(app.id);
         console.log(`[DELETE JOB] Removed application ${app.id} for job ${jobId}`);
@@ -278,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use the storage's softDeleteJob method
       const deletedPost = await storage.softDeleteJob(jobId, userId);
-      
+
       console.log(`[DELETE JOB] Successfully soft deleted job ${jobId} for user ${userId}`);
       console.log(`[DELETE JOB] Created deleted post: ${deletedPost.id}`);
 
@@ -441,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Determine the actual job ID from the deleted post
       const jobId = deletedPost.jobId || deletedPost.originalId;
-      
+
       if (!jobId) {
         console.log(`[RESTORE] No job ID found in deleted post: ${req.params.id}`);
         return res.status(400).json({ error: 'No job ID found in deleted post' });
@@ -476,17 +497,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Now restore the post (remove from deleted posts)
       const result = await storage.restoreDeletedPost(req.params.id);
-      
+
       console.log(`[RESTORE] Successfully restored deleted post: ${req.params.id}`);
       console.log(`[RESTORE] Job ${jobId} should now be visible on main jobs page for user ${deletedPost.userId}`);
-      
+
       // Add response headers to prevent caching
       res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0'
       });
-      
+
       res.json({ 
         message: 'Post restored successfully',
         jobId: jobId,
