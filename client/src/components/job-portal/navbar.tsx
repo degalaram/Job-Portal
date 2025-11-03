@@ -24,41 +24,8 @@ import {
   Plus,
   Building,
   FileText,
-  Linkedin,
-  Twitter,
-  Youtube,
-  Mail,
   Trash2
 } from 'lucide-react';
-import { Link } from 'wouter';
-
-// Component to show deleted posts count
-function DeletedPostsCounter({ userId }: { userId?: string }) {
-  const { data: deletedPosts = [] } = useQuery({
-    queryKey: ['deleted-posts-count', userId],
-    queryFn: async () => {
-      if (!userId) return [];
-      try {
-        const response = await apiRequest('GET', `/api/deleted-posts/user/${userId}`);
-        if (!response.ok) return [];
-        return response.json();
-      } catch {
-        return [];
-      }
-    },
-    enabled: !!userId,
-    staleTime: 5000,
-    refetchInterval: 10000,
-  });
-
-  if (!deletedPosts || deletedPosts.length === 0) return null;
-
-  return (
-    <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center">
-      {deletedPosts.length}
-    </span>
-  );
-}
 
 export function Navbar() {
   const [, navigate] = useLocation();
@@ -150,7 +117,6 @@ export function Navbar() {
                       <FileText className="w-4 h-4 mr-2" />
                       My Applications
                     </DropdownMenuItem>
-                    
                     <DropdownMenuItem 
                       onClick={() => navigate('/deleted-companies')}
                       data-testid="deleted-companies-menu-item"
